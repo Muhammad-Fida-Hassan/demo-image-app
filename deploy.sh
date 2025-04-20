@@ -26,3 +26,7 @@ screen -dmS streamlit-app bash -c "cd $APP_DIR && source venv/bin/activate && st
 
 echo "Update completed at $(date)" >> $LOG_FILE
 echo "App restarted at http://$(hostname -I | awk '{print $1}'):80" >> $LOG_FILE
+
+screen -S streamlit-app
+source venv/bin/activate
+streamlit run app.py --server.port 80 --server.address 0.0.0.0
