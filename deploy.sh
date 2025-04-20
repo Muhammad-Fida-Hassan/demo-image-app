@@ -1,44 +1,28 @@
 #!/bin/bash
+# filepath: /opt/update_app.sh
 
-# Deployment helper script for the Product Generator App
+# Configuration
+APP_DIR="/opt/dynamic-image-genapp"
+LOG_FILE="/opt/app_update.log"
 
-# Ensure script stops on first error
-set -e
+# Start logging
+echo "Starting update at $(date)" > $LOG_FILE
 
-echo "🚀 Starting deployment process for Product Generator App..."
+# Update repository
+cd "$APP_DIR" || { echo "App directory not found" >> $LOG_FILE; exit 1; }
+echo "Pulling latest changes..." >> $LOG_FILE
+git pull >> $LOG_FILE 2>&1
 
-# Ensure environment variables are set
-if [ ! -f .env ]; then
-    echo "❌ Error: .env file not found!"
-    echo "Please create an .env file based on the .env.example template."
-    exit 1
-fi
+# Kill existing app instances
+echo "Stopping existing app..." >> $LOG_FILE
+pkill -f "streamlit run app.py" || true
 
-# Install dependencies
-echo "📦 Installing dependencies..."
-pip install -r requirements.txt
+# Check for existing screen sessions and clean up if needed
+screen -wipe >> $LOG_FILE 2>&1
 
-# Check if MySQL is running
-echo "🔍 Checking database connection..."
-if python -c "import mysql.connector; mysql.connector.connect(host='$(grep DB_HOST .env | cut -d '=' -f2)', user='$(grep DB_USER .env | cut -d '=' -f2)', password='$(grep DB_PASSWORD .env | cut -d '=' -f2)')"; then
-    echo "✅ Database connection successful!"
-else
-    echo "❌ Error: Could not connect to MySQL database."
-    echo "Please check your database credentials in the .env file."
-    exit 1
-fi
+# Activate virtual environment and start the app
+echo "Starting app in background..." >> $LOG_FILE
+screen -dmS streamlit-app bash -c "cd $APP_DIR && source venv/bin/activate && streamlit run app.py --server.port 80 --server.address 0.0.0.0"
 
-# Create the database and tables if they don't exist
-echo "🗄️ Setting up database tables..."
-mysql -u "$(grep DB_USER .env | cut -d '=' -f2)" -p"$(grep DB_PASSWORD .env | cut -d '=' -f2)" < db_init.sql
-
-# Ensure images directory exists
-echo "📁 Creating required directories..."
-mkdir -p images
-
-# Run the application
-echo "🌟 Setup complete! Starting the application..."
-echo ""
-echo "You can access the application at http://localhost:8501"
-echo ""
-streamlit run app.py
+echo "Update completed at $(date)" >> $LOG_FILE
+echo "App restarted at http://$(hostname -I | awk '{print $1}'):80" >> $LOG_FILE
