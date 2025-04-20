@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS generated_products (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_name VARCHAR(255) NOT NULL,
     parent_sku VARCHAR(100) NOT NULL,
-    item_sku VARCHAR(100) NOT NULL UNIQUE,
+    item_sku VARCHAR(100) NOT NULL,
     marketplace_title TEXT NULL,
     parent_child VARCHAR(10) DEFAULT 'Child',
     size TEXT NULL,                -- Stores JSON array of available sizes
