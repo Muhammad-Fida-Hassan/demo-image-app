@@ -10,7 +10,7 @@ from utils.color_utils import hex_to_color_name  # Import the new function
 import yaml
 from yaml.loader import SafeLoader 
 import streamlit_authenticator as stauth
- 
+
 # Page configuration
 with open('config.yaml') as file:
     config = yaml.load(file, Loader=SafeLoader)
@@ -27,7 +27,6 @@ if not st.session_state.get("authentication_status"):
     # Show login form
     authenticator.login(location='main')
     # Check authentication status after login attempt
-        # Successfully authenticated, save to session state
     if st.session_state.get("authentication_status") is False:
         st.error('Username/password is incorrect')
     elif st.session_state.get("authentication_status") is None:
@@ -133,7 +132,6 @@ elif st.session_state.get("authentication_status") is True:
         # Display product details with improved layout
         st.subheader(f"Product Details: {product['product_name']} ({product_type} Product)")
         
-        # Replace the column layout with a single flow
         # Format size and color fields
         size_value = 'N/A'
         color_value = 'N/A'
@@ -141,7 +139,6 @@ elif st.session_state.get("authentication_status") is True:
         # Process Size field - extract names and join with commas
         if product['size']:
             try:
-                import json
                 # Try to parse as JSON if it's a string representation of an array
                 if isinstance(product['size'], str) and (product['size'].startswith('[') or product['size'].startswith('{')):
                     size_data = json.loads(product['size'])
@@ -163,7 +160,6 @@ elif st.session_state.get("authentication_status") is True:
         # Process Color field - join array values with commas  
         if product['color']:
             try:
-                import json
                 # Try to parse as JSON if it's a string representation of an array
                 if isinstance(product['color'], str) and product['color'].startswith('['):
                     color_data = json.loads(product['color'])
@@ -188,7 +184,7 @@ elif st.session_state.get("authentication_status") is True:
             product_details["Price"] = f"${product['price']}"
             
         # Handle category
-        if 'category' in product and product:
+        if 'category' in product and product['category']:
             product_details["Category"] = product['category']
             
         # Add SKU information (different field names for different product types)
@@ -216,34 +212,41 @@ elif st.session_state.get("authentication_status") is True:
         
         # Display product image if available
         if product_type == "Generated" and 'mockup_urls' in product and product['mockup_urls']:
-            image_field = 'mockup_urls'
-            image_url = product[image_field]
-            
             try:
-                import json
                 # Parse mockup_urls JSON
-                if isinstance(image_url, str) and (image_url.startswith('[') or image_url.startswith('{')):
-                    mockup_data = json.loads(image_url)
-                    # Extract all URLs from the mockup data
-                    if isinstance(mockup_data, dict) and len(mockup_data) > 0:
-                        # Display all mockups for different colors
-                        st.write("Available mockups:")
-                        for color_code, mockup_url in mockup_data.items():
-                            color_name = color_code.replace("#", "")  # Remove # from hex code for display
-                            st.image(mockup_url, caption=f"Mockup - {color_name}", width=300)
-                    elif isinstance(mockup_data, list) and len(mockup_data) > 0:
-                        for i, url in enumerate(mockup_data):
-                            st.image(url, caption=f"Mockup {i+1}", width=300)
+                mockup_data = json.loads(product['mockup_urls']) if isinstance(product['mockup_urls'], str) else product['mockup_urls']
+                
+                if isinstance(mockup_data, dict) and len(mockup_data) > 0:
+                    st.write("Available mockups:")
+                    for color_code, urls in mockup_data.items():
+                        # Normalize color code
+                        color_key = color_code.lstrip('#')
+                        color_name = hex_to_color_name(f"#{color_key}")  # Ensure hex code has #
+                        # Handle multiple URLs (comma-separated)
+                        url_list = [url.strip() for url in urls.split(',')] if isinstance(urls, str) else [urls]
+                        for i, url in enumerate(url_list):
+                            if url:
+                                try:
+                                    # Attempt to load and display the image
+                                    st.image(url, caption=f"Mockup - {color_name} {i+1}", width=300)
+                                except Exception as img_err:
+                                    st.error(f"Failed to load image {url}: {img_err}")
+                            else:
+                                st.markdown(f"📷 *No valid URL for {color_name} {i+1}*")
                 else:
-                    st.image(image_url, caption=f"Mockup for {product['product_name']}", width=300)
+                    st.markdown("📷 *No valid mockup images available*")
             except Exception as e:
-                st.error(f"Error parsing mockup URL: {e}")
-                st.markdown("📷 *Mockup image could not be loaded*")
+                st.error(f"Error parsing mockup URLs: {e}")
+                st.markdown("📷 *Mockup images could not be loaded*")
         else:
             # Use default image fields and logic for regular products
             image_field = 'image_url' if product_type == "Regular" else 'original_design_url'
-            if product[image_field]:
-                st.image(product[image_field], caption=f"Image for {product['product_name']}", width=300)
+            if image_field in product and product[image_field]:
+                try:
+                    st.image(product[image_field], caption=f"Image for {product['product_name']}", width=300)
+                except Exception as img_err:
+                    st.error(f"Failed to load image {product[image_field]}: {img_err}")
+                    st.markdown("📷 *Image could not be loaded*")
             else:
                 st.markdown("📷 *No image available*")
 
@@ -476,7 +479,11 @@ elif st.session_state.get("authentication_status") is True:
                             if isinstance(mockup_data, str) and (mockup_data.startswith('[') or mockup_data.startswith('{')):
                                 data = json.loads(mockup_data)
                                 if isinstance(data, dict) and len(data) > 0:
-                                    return list(data.values())[0]
+                                    # Get first URL from the first color
+                                    first_color = list(data.keys())[0]
+                                    urls = data[first_color]
+                                    url_list = [url.strip() for url in urls.split(',')] if isinstance(urls, str) else [urls]
+                                    return url_list[0] if url_list else ''
                                 elif isinstance(data, list) and len(data) > 0:
                                     return data[0]
                             return mockup_data
@@ -695,49 +702,52 @@ elif st.session_state.get("authentication_status") is True:
                 if row.get('product_type') == 'Generated' and 'mockup_urls' in row and row['mockup_urls']:
                     try:
                         # Parse mockup_urls JSON
-                        mockup_data = row['mockup_urls']
-                        if isinstance(mockup_data, str) and (mockup_data.startswith('{') or mockup_data.startswith('[')):
-                            mockup_json = json.loads(mockup_data)
-                            
-                            if isinstance(mockup_json, dict) and len(mockup_json) > 0:
-                                # Create a separate row for each color
-                                for color_code, mockup_url in mockup_json.items():
-                                    new_row = row.copy()
-                                    friendly_color = hex_to_color_name(color_code)
-                                    
-                                    # Add color-specific information to row
-                                    new_row['current_color'] = color_code
-                                    new_row['color_name'] = friendly_color
-                                    new_row['current_mockup_url'] = mockup_url
-                                    
-                                    # Also expand for sizes if available
-                                    if 'size' in row and row['size']:
-                                        try:
-                                            size_data = row['size']
-                                            if isinstance(size_data, str) and (size_data.startswith('[') or size_data.startswith('{')):
-                                                size_json = json.loads(size_data)
-                                                if isinstance(size_json, list) and len(size_json) > 0:
-                                                    for size in size_json:
-                                                        size_row = new_row.copy()
-                                                        size_value = size
-                                                        if isinstance(size, dict) and 'name' in size:
-                                                            size_value = size['name']
-                                                        size_row['current_size'] = size_value
-                                                        expanded_rows.append(size_row)
-                                                    continue  # Skip adding the non-sized row
-                                        except Exception as e:
-                                            print(f"Error processing sizes: {e}")
-                                    
-                                    expanded_rows.append(new_row)
-                                continue  # Skip adding the original row
-                            elif isinstance(mockup_json, list) and len(mockup_json) > 0:
-                                # For array format, create a separate row for each mockup
-                                for i, mockup_url in enumerate(mockup_json):
-                                    new_row = row.copy()
-                                    new_row['current_mockup_url'] = mockup_url
-                                    new_row['mockup_variant'] = i + 1
-                                    expanded_rows.append(new_row)
-                                continue  # Skip adding the original row
+                        mockup_data = json.loads(row['mockup_urls']) if isinstance(row['mockup_urls'], str) else row['mockup_urls']
+                        
+                        if isinstance(mockup_data, dict) and len(mockup_data) > 0:
+                            # Create a separate row for each color
+                            for color_code, urls in mockup_data.items():
+                                new_row = row.copy()
+                                # Normalize color code
+                                color_key = color_code.lstrip('#')
+                                friendly_color = hex_to_color_name(f"#{color_key}")  # Ensure hex code has #
+                                # Handle multiple URLs (comma-separated)
+                                url_list = [url.strip() for url in urls.split(',')] if isinstance(urls, str) else [urls]
+                                first_url = url_list[0] if url_list else ''
+                                
+                                # Add color-specific information to row
+                                new_row['current_color'] = f"#{color_key}"
+                                new_row['color_name'] = friendly_color
+                                new_row['current_mockup_url'] = first_url
+                                
+                                # Also expand for sizes if available
+                                if 'size' in row and row['size']:
+                                    try:
+                                        size_data = row['size']
+                                        if isinstance(size_data, str) and (size_data.startswith('[') or size_data.startswith('{')):
+                                            size_json = json.loads(size_data)
+                                            if isinstance(size_json, list) and len(size_json) > 0:
+                                                for size in size_json:
+                                                    size_row = new_row.copy()
+                                                    size_value = size
+                                                    if isinstance(size, dict) and 'name' in size:
+                                                        size_value = size['name']
+                                                    size_row['current_size'] = size_value
+                                                    expanded_rows.append(size_row)
+                                                continue  # Skip adding the non-sized row
+                                    except Exception as e:
+                                        print(f"Error processing sizes: {e}")
+                                
+                                expanded_rows.append(new_row)
+                            continue  # Skip adding the original row
+                        elif isinstance(mockup_data, list) and len(mockup_data) > 0:
+                            # For array format, create a separate row for each mockup
+                            for i, mockup_url in enumerate(mockup_data):
+                                new_row = row.copy()
+                                new_row['current_mockup_url'] = mockup_url
+                                new_row['mockup_variant'] = i + 1
+                                expanded_rows.append(new_row)
+                            continue  # Skip adding the original row
                     except Exception as e:
                         st.error(f"Error parsing mockup URLs: {e}")
                 
@@ -818,44 +828,35 @@ elif st.session_state.get("authentication_status") is True:
                 with cols[0]:
                     # For generated products, use mockup_urls instead of original_design_url
                     if product_type == 'Generated' and 'mockup_urls' in row and row['mockup_urls']:
-                        image_field = 'mockup_urls'
-                        
-                        # If we've already expanded this row by color, use the specific mockup URL
-                        if 'current_mockup_url' in row and row['current_mockup_url']:
-                            st.image(row['current_mockup_url'], width=70, 
-                                     caption=f"{row['color_name'] if 'color_name' in row else ''}")
-                        else:
-                            # Use existing logic for rows that haven't been expanded
-                            try:
-                                import json
-                                if isinstance(row[image_field], str) and (row[image_field].startswith('[') or row[image_field].startswith('{')):
-                                    mockup_data = json.loads(row[image_field])
-                                    
-                                    if isinstance(mockup_data, dict) and len(mockup_data) > 0:
-                                        # Get list of available colors
-                                        colors = list(mockup_data.keys())
-                                        
-                                        # Use the row index to select which color to show
-                                        color_idx = idx % len(colors)
-                                        selected_color = colors[color_idx]
-                                        
-                                        # Get URL for selected color
-                                        url = mockup_data[selected_color]
-                                        
-                                        # Convert to user-friendly color name
-                                        friendly_color = hex_to_color_name(selected_color)
-                                        
-                                        # Display just one image with color info
-                                        st.image(url, width=70, caption=f"{friendly_color}")
-                                    elif isinstance(mockup_data, list) and len(mockup_data) > 0:
-                                        # For list type mockups, select one based on index
-                                        list_idx = idx % len(mockup_data)
-                                        st.image(mockup_data[list_idx], width=70)
+                        try:
+                            # If we've already expanded this row by color, use the specific mockup URL
+                            if 'current_mockup_url' in row and row['current_mockup_url']:
+                                st.image(row['current_mockup_url'], width=70, 
+                                        caption=f"{row['color_name'] if 'color_name' in row else 'Mockup'}")
+                            else:
+                                # Parse mockup_urls JSON
+                                mockup_data = json.loads(row['mockup_urls']) if isinstance(row['mockup_urls'], str) else row['mockup_urls']
+                                
+                                if isinstance(mockup_data, dict) and len(mockup_data) > 0:
+                                    # Get the first color's first URL
+                                    first_color = list(mockup_data.keys())[0]
+                                    color_key = first_color.lstrip('#')
+                                    friendly_color = hex_to_color_name(f"#{color_key}")
+                                    urls = mockup_data[first_color]
+                                    url_list = [url.strip() for url in urls.split(',')] if isinstance(urls, str) else [urls]
+                                    first_url = url_list[0] if url_list else ''
+                                    if first_url:
+                                        st.image(first_url, width=70, caption=f"{friendly_color}")
+                                    else:
+                                        st.markdown("📷 *No valid mockup image*")
+                                elif isinstance(mockup_data, list) and len(mockup_data) > 0:
+                                    # For list type mockups, use the first URL
+                                    st.image(mockup_data[0], width=70, caption="Mockup")
                                 else:
-                                    st.image(row[image_field], width=70)
-                            except Exception as e:
-                                st.error(f"Error parsing mockup URL: {e}")
-                                st.markdown("📷 *Invalid mockup data*")
+                                    st.markdown("📷 *No valid mockup image*")
+                        except Exception as e:
+                            st.error(f"Error parsing mockup URL: {e}")
+                            st.markdown("📷 *Invalid mockup data*")
                     else:
                         # Use image_url for regular products, original_design_url as fallback for generated products
                         image_field = 'image_url' if product_type == 'Regular' else 'original_design_url'
@@ -864,7 +865,11 @@ elif st.session_state.get("authentication_status") is True:
                             image_url = row[image_field]
                             # Ensure image_url is a valid string before displaying
                             if image_url and isinstance(image_url, str):
-                                st.image(image_url, width=70)
+                                try:
+                                    st.image(image_url, width=70, caption="Product Image")
+                                except Exception as img_err:
+                                    st.error(f"Failed to load image {image_url}: {img_err}")
+                                    st.markdown("📷 *Image could not be loaded*")
                             else:
                                 st.markdown("📷 *Invalid image URL*")
                         else:
@@ -982,4 +987,3 @@ elif st.session_state.get("authentication_status") is True:
             
             # Display page information
             st.write(f"Page {st.session_state.current_page} of {total_pages} | Showing {start_idx+1}-{end_idx} of {total_items} products")
-

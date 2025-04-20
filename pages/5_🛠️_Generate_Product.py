@@ -868,9 +868,8 @@ elif st.session_state.get("authentication_status") is True:
                         colors = product_data["colors"]
                         color_hex_set = {color_name_to_hex(color) for color in colors}
                         
-                        # Calculate total iterations based on product variants
-                        product_variants = [(size, color) for size in sizes for color in colors]
-                        total_iterations = sum(len(product_variants) for _ in all_mockup_results)
+                        # Calculate total iterations based on mockup sets
+                        total_iterations = sum(len([m for m in mockup_set['results'] if m['color'] in color_hex_set]) for mockup_set in all_mockup_results)
                         progress_bar = st.progress(0)
                         completed = 0
                         
@@ -887,24 +886,18 @@ elif st.session_state.get("authentication_status") is True:
                             # Filter mockup results to include only currently selected colors
                             filtered_results = [m for m in mockup_set['results'] if m['color'] in color_hex_set]
                             
-                            for idx, (size, color) in enumerate(product_variants):
-                                hex_color = color_name_to_hex(color)
-                                mockup = next((m for m in filtered_results if m['color'] == hex_color), None)
-                                
-                                if not mockup:
-                                    st.warning(f"No mockup found for color {color} in template {mockup_id}")
-                                    continue
-                                
+                            for mockup in filtered_results:
+                                hex_color = mockup['color']
                                 mockup_url = mockup['rendered_image_url']
                                 
                                 try:
                                     response = requests.get(mockup_url, timeout=15)
                                     if response.status_code == 200:
-                                        # Generate SKU for this specific size and color
-                                        design_sku = generate_product_sku(
+                                        # Generate a temporary SKU for filename (will be regenerated later)
+                                        temp_sku = generate_product_sku(
                                             parent_sku=st.session_state.selected_product_data['item_sku'] if st.session_state.selected_product_data and 'item_sku' in st.session_state.selected_product_data else None,
-                                            size=size,
-                                            color=color
+                                            size=sizes[0] if sizes else None,
+                                            color=hex_to_color_name(hex_color.lstrip('#'))
                                         )
                                         local_filename = f"mockup_{design_sku}_{color}_{mockup_id[-6:]}.png"
                                         local_filepath = os.path.join(temp_dir, local_filename)
@@ -968,61 +961,82 @@ elif st.session_state.get("authentication_status") is True:
                         st.session_state.used_sku_numbers = set()
                         st.session_state.sku_sequence_number = None
                         
+                        # Consolidate mockups by size and color
+                        product_variants = {}
                         for mockup_set_idx, mockup_set in enumerate(all_mockup_results):
                             mockup_id = mockup_set['mockup_id']
                             mockup_s3_urls = all_mockup_s3_urls.get(mockup_id, {})
+                            smart_object_uuid = mockup_set.get('smart_object_uuid')
                             
-                            # Filter mockup results again for database saving
                             filtered_results = [m for m in mockup_set['results'] if m['color'] in color_hex_set]
                             
-                            if mockup_s3_urls:
-                                try:
-                                    # Generate SKUs for each size/color combination
-                                    for idx, (size, color) in enumerate(product_variants):
-                                        hex_color = color_name_to_hex(color)
-                                        s3_url = mockup_s3_urls.get(hex_color)
-                                        
-                                        if not s3_url:
-                                            st.warning(f"No S3 URL for color {color} in template {mockup_id}")
-                                            continue
-                                        
-                                        current_design_sku = generate_product_sku(
-                                            parent_sku=parent_sku,
-                                            size=size,
-                                            color=color
-                                        )
-                                        
-                                        product_dict = {
-                                            "product_name": f"{product_data['design_name']}",
-                                            "marketplace_title": product_data["marketplace_title"],
-                                            "item_sku": current_design_sku,
-                                            "parent_sku": parent_sku,
-                                            "size": json.dumps([size]),
-                                            "color": json.dumps([color_name_to_hex(color)]),
-                                            "original_design_url": product_data["original_design_url"],
-                                            "mockup_urls": json.dumps({hex_color: s3_url}),
-                                            "mockup_id": mockup_id,
-                                            "smart_object_uuid": mockup_set.get('smart_object_uuid')
+                            for mockup in filtered_results:
+                                hex_color = mockup['color']
+                                color_name = hex_to_color_name(hex_color.lstrip('#'))
+                                if not color_name:
+                                    continue
+                                
+                                s3_url = mockup_s3_urls.get(hex_color)
+                                if not s3_url:
+                                    st.warning(f"No S3 URL for color {color_name} in template {mockup_id}")
+                                    continue
+                                
+                                for size in sizes:
+                                    variant_key = (size, color_name)
+                                    if variant_key not in product_variants:
+                                        product_variants[variant_key] = {
+                                            'size': size,
+                                            'color': color_name,
+                                            'mockup_urls': [],
+                                            'mockup_ids': [],
+                                            'smart_object_uuids': []
                                         }
-                                        
-                                        if st.session_state.selected_product_id:
-                                            product_dict["parent_product_id"] = st.session_state.selected_product_id
-                                        
-                                        new_id = db.create_generated_product(product_dict)
-                                        if new_id:
-                                            success_count += 1
-                                except Exception as e:
-                                    st.error(f"Error saving mockup set {mockup_set_idx+1}: {str(e)}")
+                                    
+                                    product_variants[variant_key]['mockup_urls'].append(s3_url)
+                                    product_variants[variant_key]['mockup_ids'].append(mockup_id)
+                                    product_variants[variant_key]['smart_object_uuids'].append(smart_object_uuid)
+                        
+                        # Save consolidated variants to database
+                        for variant_key, variant_data in product_variants.items():
+                            size, color = variant_key
+                            try:
+                                current_design_sku = generate_product_sku(
+                                    parent_sku=parent_sku,
+                                    size=size,
+                                    color=color
+                                )
+                                
+                                product_dict = {
+                                    "product_name": f"{product_data['design_name']}",
+                                    "marketplace_title": product_data["marketplace_title"],
+                                    "item_sku": current_design_sku,
+                                    "parent_sku": parent_sku,
+                                    "size": json.dumps([size]),
+                                    "color": json.dumps([color_name_to_hex(color)]),
+                                    "original_design_url": product_data["original_design_url"],
+                                    "mockup_urls": json.dumps({color_name_to_hex(color): ','.join(variant_data['mockup_urls'])}),
+                                    "mockup_ids": json.dumps(variant_data['mockup_ids']),
+                                    "smart_object_uuids": json.dumps(variant_data['smart_object_uuids'])
+                                }
+                                
+                                if st.session_state.selected_product_id:
+                                    product_dict["parent_product_id"] = st.session_state.selected_product_id
+                                
+                                new_id = db.create_generated_product(product_dict)
+                                if new_id:
+                                    success_count += 1
+                            except Exception as e:
+                                st.error(f"Error saving variant {size}/{color}: {str(e)}")
                         
                         if success_count > 0:
-                            st.success(f"Successfully saved {success_count} mockup templates to database!")
+                            st.success(f"Successfully saved {success_count} product variants to database!")
                             st.session_state.product_data_to_save = None
                             
                             if st.button("Go to Product List to view your new products"):
                                 st.experimental_set_query_params(page="product_list")
                                 st.rerun()
                         else:
-                            st.error("Failed to save any mockups to database. Check the errors above.")
+                            st.error("Failed to save any products to database. Check the errors above.")
 
         if 'original_mockup_colors' not in st.session_state:
             st.session_state.original_mockup_colors = {}
