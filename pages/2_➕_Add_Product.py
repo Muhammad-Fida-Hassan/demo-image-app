@@ -63,7 +63,7 @@ elif st.session_state.get("authentication_status") is True:
     if 'preview_mockup_selection' not in st.session_state:
         st.session_state.preview_mockup_selection = ""  # Initialize preview selection
     if 'available_sizes' not in st.session_state:
-        st.session_state.available_sizes = ["Small", "Medium", "Large", "XL", "XXL", "XXXL"]
+        st.session_state.available_sizes = ["Small", "Medium", "Large", "X-Large", "XX-Large", "XXX-Large"]
     if 'selected_sizes' not in st.session_state:
         st.session_state.selected_sizes = []
     if 'sku' not in st.session_state:
@@ -103,23 +103,9 @@ elif st.session_state.get("authentication_status") is True:
         # Add a dash after the name part
         sku = name_part + "-"
         
-        # Add color codes (first letter of each color)
-        if colors and len(colors) > 0:
-            color_part = ""
-            for color_hex in colors:
-                # Get the color name from the hex value
-                color_name = next((k for k, v in COLOR_HEX_MAP.items() if v == color_hex), "")
-                if color_name:
-                    color_part += color_name[0]  # First letter of the color
-            if color_part:
-                sku += color_part + "-"
-        
-        # Add size information (count of sizes)
-        if sizes and len(sizes) > 0:
-            sku += f"{len(sizes)}-"
-        
-        # Add a random alphanumeric string to ensure uniqueness
-        sku += ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+        # Add 3 random numbers
+        random_numbers = ''.join(random.choice(string.digits) for _ in range(3))
+        sku += random_numbers
         
         return sku
 
