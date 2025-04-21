@@ -735,7 +735,7 @@ elif st.session_state.get("authentication_status") is True:
                                     unsafe_allow_html=True
                                 )
             
-            design_name = st.text_input("Design Name", value=default_design_name, placeholder="Value", key="design_name", 
+            design_name = st.text_input("Design Name", placeholder="Value", key="design_name", 
                                         on_change=update_design_sku)
             
             marketplace_title = st.text_input("Marketplace Title (80 character limit)", 
@@ -743,6 +743,13 @@ elif st.session_state.get("authentication_status") is True:
                                              placeholder="Value", 
                                              key="marketplace_title",
                                              on_change=update_design_sku)
+            
+            # Display character count for marketplace title
+            if marketplace_title:
+                char_count = len(marketplace_title)
+                st.caption(f"{char_count}/80 characters")
+                if char_count > 80:
+                    st.warning("Marketplace title exceeds 80 character limit")
             
             if not default_design_sku and default_design_name:
                 default_design_sku = generate_product_sku(
@@ -791,9 +798,27 @@ elif st.session_state.get("authentication_status") is True:
                 st.info(f"Using Smart Object UUID: {st.session_state.selected_product_data['smart_object_uuid']}")
             
             if st.button("Generate All Mockups"):
+                validation_passed = True
+                
+                # Validate Design Name
+                if not design_name or design_name.strip() == "":
+                    st.error("Please enter a Design Name.")
+                    validation_passed = False
+                
+                # Validate Marketplace Title
+                if not marketplace_title or marketplace_title.strip() == "":
+                    st.error("Please enter a Marketplace Title.")
+                    validation_passed = False
+                elif len(marketplace_title) > 80:
+                    st.error("Marketplace Title must be 80 characters or less.")
+                    validation_passed = False
+                
+                # Validate Design Image
                 if not design_image:
-                    st.error("Please upload a design image to generate mockups.")
-                else:
+                    st.error("Please upload a Design Image to generate mockups.")
+                    validation_passed = False
+                
+                if validation_passed:
                     if not colors:
                         st.warning("No colors selected. Using default color (Red).")
                         selected_colors = ["Red"]
@@ -892,6 +917,7 @@ elif st.session_state.get("authentication_status") is True:
                                 hex_color = mockup['color']
                                 mockup_url = mockup['rendered_image_url']
                                 
+                                
                                 # Initialize the color entry if it doesn't exist
                                 if hex_color not in color_to_mockup_urls:
                                     color_to_mockup_urls[hex_color] = {}
@@ -906,7 +932,9 @@ elif st.session_state.get("authentication_status") is True:
                                             size=sizes[0] if sizes else None,
                                             color=color_name
                                         )
-                                        local_filename = f"mockup_{design_sku}_{color_name}_{mockup_id[-6:]}.png"
+                                        # Use item_sku instead of design_sku for the filename
+                                        item_sku = st.session_state.selected_product_data['item_sku'] if st.session_state.selected_product_data and 'item_sku' in st.session_state.selected_product_data else "unknown"
+                                        local_filename = f"mockup_{item_sku}_{color_name}_{mockup_id[-6:]}.png"
                                         local_filepath = os.path.join(temp_dir, local_filename)
                                         
                                         with open(local_filepath, 'wb') as f:
