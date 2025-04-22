@@ -46,10 +46,19 @@ elif st.session_state.get("authentication_status") is True:
     def get_sequential_number(parent_sku=None):
         """Generate a sequential 3-digit number, starting from parent SKU number + 1"""
         if st.session_state.sku_sequence_number is None:
-            # Extract the 3-digit number from parent SKU (e.g., HOO-402 -> 402)
+            # Extract the number from parent SKU
             if parent_sku and '-' in parent_sku:
                 try:
-                    parent_number = int(parent_sku.split('-')[1])
+                    parts = parent_sku.split('-')
+                    # Try to get number from the last part (e.g., "T-S-052" -> "052")
+                    if parts[-1].isdigit():
+                        parent_number = int(parts[-1])
+                    # Fall back to second part for standard SKUs (e.g., "ABC-123" -> "123")
+                    elif len(parts) >= 2 and parts[1].isdigit():
+                        parent_number = int(parts[1])
+                    else:
+                        raise ValueError("No valid number found in SKU")
+                        
                     number = parent_number + 1  # Start from parent number + 1
                     if number > 999:
                         number = 1  # Reset to 1 if exceeding 999
@@ -89,8 +98,10 @@ elif st.session_state.get("authentication_status") is True:
         """Generate a unique SKU with a sequential 3-digit number based on parent SKU"""
         sku = ""
         
-        # Use parent SKU's first three letters or default to 'DES' if not available
-        if parent_sku and len(parent_sku) >= 3:
+        # Extract prefix from parent SKU (everything before the hyphen)
+        if parent_sku and '-' in parent_sku:
+            sku_base = parent_sku.split('-')[0].upper()
+        elif parent_sku and len(parent_sku) >= 3:
             sku_base = parent_sku[:3].upper()
         else:
             sku_base = "DES"
@@ -98,10 +109,15 @@ elif st.session_state.get("authentication_status") is True:
         # Get a sequential 3-digit number based on parent SKU
         sku_number = get_sequential_number(parent_sku)
         
-        # Get first letter of the provided size, if available
+        # Get size code: use XX for XX-Large, XXX for XXX-Large, otherwise first letter
         size_letter = ""
         if size:
-            size_letter = size[0].upper()  # First letter of the size
+            if size == "XX-Large":
+                size_letter = "XX"
+            elif size == "XXX-Large":
+                size_letter = "XXX"
+            else:
+                size_letter = size[0].upper()  # First letter of the size
         
         # Use the provided color name, if available
         color_name = color if color else ""
@@ -595,7 +611,7 @@ elif st.session_state.get("authentication_status") is True:
             mockup_id = st.session_state.selected_product_data.get('mockup_id')
             smart_object_uuid = st.session_state.selected_product_data.get('smart_object_uuid')
         
-        with st.spinner(f"Generating mockup for {color_name}..."):
+        with st.spinner(f"Generating mockup for slightly modified version of {color_name}..."):
             mockup_results = generate_mockup(
                 st.session_state.uploaded_image_url,
                 [hex_color],
