@@ -121,10 +121,10 @@ elif st.session_state.get("authentication_status") is True:
 
     # Function to validate SKU prefix
     def validate_sku_prefix(prefix):
-        """Validate that the SKU prefix is 3-4 characters long and contains only letters"""
+        """Validate that the SKU prefix is exactly 4 characters long and contains only letters"""
         if not prefix:
             return False
-        if not (3 <= len(prefix) <= 4):
+        if len(prefix) != 4:
             return False
         return prefix.isalpha()
 
@@ -284,11 +284,11 @@ elif st.session_state.get("authentication_status") is True:
         
         st.subheader("SKU Prefix")
         st.text_input(
-            "SKU Prefix (3-4 letters)",
-            placeholder="Enter 3-4 letter prefix (e.g., MTS, BG, WTS)",
+            "SKU Prefix (Exactly 4 letters)",
+            placeholder="Enter exactly 4 letter prefix (e.g., MOCK)",
             key="sku_prefix",
             value=st.session_state.sku_prefix,
-            help="Enter a 3-4 letter prefix for the SKU. The final SKU will be in the format PREFIX-XXXX."
+            help="Enter exactly 4 letters for the SKU prefix. The final SKU will be in the format PREFIX-XXXX."
         )
 
         # Size Section
@@ -413,7 +413,7 @@ elif st.session_state.get("authentication_status") is True:
         
         # Validate SKU prefix
         if not validate_sku_prefix(sku_prefix):
-            st.error("Please enter a valid SKU prefix (3-4 letters only).")
+            st.error("Please enter a valid SKU prefix (exactly 4 letters only).")
         else:
             # Generate final SKU
             item_sku = generate_final_sku(sku_prefix)
