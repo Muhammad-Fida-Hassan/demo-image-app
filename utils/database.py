@@ -890,6 +890,26 @@ class Database:
             print(f"Error getting related products: {e}")
             return pd.DataFrame()
     
+    def get_product_count(self):
+        """
+        Get the total number of products in the database
+        
+        Returns:
+            int: Total number of products
+        """
+        if not self._check_connection():
+            st.error("Cannot get product count: database connection failed")
+            return 0
+            
+        try:
+            query = "SELECT COUNT(*) as count FROM products"
+            self.cursor.execute(query)
+            result = self.cursor.fetchone()
+            return result['count'] if result else 0
+        except Error as e:
+            st.error(f"Error getting product count: {e}")
+            return 0
+    
     def __del__(self):
         """Close database connection when object is destroyed"""
         if hasattr(self, 'connection') and self.connection is not None:
