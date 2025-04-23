@@ -1143,6 +1143,33 @@ class Database:
             st.error(f"Error setting FTP setting {setting_id} as default: {e}")
             return False
 
+    def execute_query(self, query, params=None):
+        """
+        Execute a custom SQL query with optional parameters
+        
+        Args:
+            query (str): SQL query to execute
+            params (tuple, optional): Parameters for the query
+            
+        Returns:
+            list: List of dictionaries with query results or None if error
+        """
+        if not self._check_connection():
+            st.error("Cannot execute query: database connection failed")
+            return None
+            
+        try:
+            if params:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+                
+            results = self.cursor.fetchall()
+            return results
+        except Error as e:
+            st.error(f"Error executing query: {e}")
+            return None
+
 # Create connection pool
 @st.cache_resource
 def get_database_connection():

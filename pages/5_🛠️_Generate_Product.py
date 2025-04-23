@@ -33,7 +33,7 @@ if not st.session_state.get("authentication_status"):
         st.error('Username/password is incorrect')
     elif st.session_state.get("authentication_status") is None:
         st.warning('Please enter your username and password')
-    
+
 elif st.session_state.get("authentication_status") is True:
 
     # Initialize set for used SKU numbers and sequence tracking in session state
@@ -113,6 +113,33 @@ elif st.session_state.get("authentication_status") is True:
         
         return sku
 
+    # Function to generate SKU for new products in the products table
+    def generate_new_product_sku(parent_sku=None):
+        """Generate a unique SKU for a new product based on product count in the database"""
+        db = get_database_connection()
+        
+        # Extract prefix from parent SKU or use default
+        if parent_sku and '-' in parent_sku:
+            sku_base = parent_sku.split('-')[0].upper()
+        elif parent_sku and len(parent_sku) >= 4:
+            sku_base = parent_sku[:4].upper()
+        else:
+            sku_base = "QWER"  # Default prefix if no parent SKU is provided
+        
+        # Get the total number of products and increment by 1
+        product_count = db.get_product_count()
+        sku_number = product_count + 1
+        
+        # Generate the SKU with 4-digit padding
+        sku = f"{sku_base}-{sku_number:04d}"
+        
+        # Check if the SKU already exists in the products table
+        while db.execute_query("SELECT 1 FROM products WHERE item_sku = %s", (sku,)):
+            sku_number += 1
+            sku = f"{sku_base}-{sku_number:04d}"
+        
+        return sku
+
     # Function to update the SKU based on current form inputs
     def update_design_sku():
         """Update the design SKU based on current form inputs"""
@@ -154,10 +181,79 @@ elif st.session_state.get("authentication_status") is True:
         st.session_state.selected_product_id = None
     if 'selected_product_data' not in st.session_state:
         st.session_state.selected_product_data = None
+    if 'refresh_product_selector' not in st.session_state:
+        st.session_state.refresh_product_selector = False
 
     # Define the available options for sizes and colors
     AVAILABLE_SIZES = ["Small", "Medium", "Large", "X-Large", "XX-Large", "XXX-Large"]
     AVAILABLE_COLORS = ["Black", "Navy", "Grey", "White", "Red", "Blue", "Green", "Yellow", "Purple"]
+
+    def check_for_matching_generated_products(item_sku):
+        """
+        Check if there are any generated products with parent_sku matching the given item_sku
+        
+        Args:
+            item_sku (str): SKU to check against parent_sku in generated_products
+            
+        Returns:
+            list: List of matching generated products, or empty list if none found
+        """
+        try:
+            query = "SELECT * FROM generated_products WHERE parent_sku = %s ORDER BY id DESC"
+            matching_products = db.execute_query(query, (item_sku,))
+            return matching_products if matching_products else []
+        except Exception as e:
+            st.error(f"Error checking for matching generated products: {str(e)}")
+            return []
+
+    def create_new_product_from_generated(product_data):
+        """
+        Create a new product based on the selected product but with a new SKU
+        
+        Args:
+            product_data (dict): Original product data
+            
+        Returns:
+            int: ID of the newly created product or None if failed
+        """
+        try:
+            # Check if a new product has already been created for this session
+            if 'new_product_id' in st.session_state:
+                return st.session_state.new_product_id
+
+            # Generate a new unique SKU using the product count
+            original_sku = product_data['item_sku']
+            new_sku = generate_new_product_sku(parent_sku=original_sku)
+            
+            # Create a copy of product data with a new SKU
+            new_product = product_data.copy()
+            new_product['item_sku'] = new_sku
+            
+            # Remove ID to ensure it creates a new record
+            if 'id' in new_product:
+                del new_product['id']
+            
+            # Update name to indicate it's a new version
+            new_product['product_name'] = f"{product_data['product_name']} (Version {new_sku.split('-')[1]})"
+            
+            # Insert the new product into the database
+            new_id = db.add_product(new_product)
+            
+            if new_id:
+                # Store the new product ID in session state to prevent duplicates
+                st.session_state.new_product_id = new_id
+                # Refresh products dataframe to include the new product
+                global products_df
+                products_df = db.get_all_products()
+                # Trigger a refresh of the product selector
+                st.session_state.refresh_product_selector = True
+                return new_id
+            else:
+                st.error("Failed to create new product version.")
+                return None
+        except Exception as e:
+            st.error(f"Error creating new product version: {str(e)}")
+            return None
 
     def generate_mockup(image_url, colors, mockup_id=None, smart_object_uuid=None):
         """
@@ -172,18 +268,14 @@ elif st.session_state.get("authentication_status") is True:
         Returns:
             list: List of mockup data if successful, empty list otherwise
         """
-        # Use provided IDs or fall back to defaults
         MOCKUP_UUID = mockup_id or "db90556b-96a3-483c-ba88-557393b992a1"
         SMART_OBJECT_UUID = smart_object_uuid or "fb677f24-3dce-4d53-b024-26ea52ea43c9"
         
-        # Validate input parameters
         if not image_url:
             st.error("No image URL provided for mockup generation")
             return []
             
-        # Format validation - make sure the URL is accessible
         try:
-            # Check if the image URL is accessible
             image_check = requests.head(image_url)
             if image_check.status_code != 200:
                 st.error(f"Image URL is not accessible: {image_url}")
@@ -193,11 +285,9 @@ elif st.session_state.get("authentication_status") is True:
             st.error(f"Error validating image URL: {e}")
             return []
         
-        # Generate mockups for each color
         mockup_results = []
         
         for color in colors:
-            # Create request data according to API documentation format
             request_data = {
                 "mockup_uuid": MOCKUP_UUID,
                 "smart_objects": [
@@ -231,7 +321,6 @@ elif st.session_state.get("authentication_status") is True:
                     
                 result = response.json()
                 
-                # Get the rendered image URL from the response
                 if 'data' in result and 'export_path' in result['data']:
                     mockup_data = {
                         'rendered_image_url': result['data']['export_path'],
@@ -283,10 +372,33 @@ elif st.session_state.get("authentication_status") is True:
         """Load product data if an item is selected from the dropdown"""
         if st.session_state.product_selector and st.session_state.product_selector != "None":
             selected_id = int(st.session_state.product_selector)
+            
+            # Avoid re-processing if the same product is already selected
+            if st.session_state.selected_product_id == selected_id:
+                return
+            
             st.session_state.selected_product_id = selected_id
             
             product_data = db.get_product(selected_id)
             if product_data:
+                # Check if this product's SKU matches any parent_sku in generated_products
+                if 'item_sku' in product_data and product_data['item_sku']:
+                    matching_generated_products = check_for_matching_generated_products(product_data['item_sku'])
+                    if matching_generated_products:
+                        # Automatically create a new product version with updated SKU
+                        with st.spinner("Creating new product version based on existing designs..."):
+                            new_product_id = create_new_product_from_generated(product_data)
+                            if new_product_id:
+                                # Update the selected product to the new one
+                                st.session_state.selected_product_id = new_product_id
+                                st.session_state.product_selector = str(new_product_id)  # Update dropdown
+                                st.success(f"✅ Created new product version (ID: {new_product_id}) based on existing designs")
+                                # Refresh product data for the new product
+                                product_data = db.get_product(new_product_id)
+                                if not product_data:
+                                    st.error(f"Failed to fetch new product with ID {new_product_id}")
+                                    return
+                
                 st.session_state.selected_product_data = product_data
                 
                 try:
@@ -314,6 +426,9 @@ elif st.session_state.get("authentication_status") is True:
                         st.session_state.smart_object_uuids = [product_data['smart_object_uuid']] if product_data['smart_object_uuid'] else []
                         print(f"Using single smart object UUID: {st.session_state.smart_object_uuids}")
                     
+                    # Update design SKU based on new product data
+                    update_design_sku()
+                
                 except json.JSONDecodeError as e:
                     st.error(f"Failed to parse product data: {e}")
                     st.session_state.parsed_sizes = []
@@ -334,6 +449,8 @@ elif st.session_state.get("authentication_status") is True:
             st.session_state.selected_product_data = None
             st.session_state.mockup_ids = []
             st.session_state.smart_object_uuids = []
+            st.session_state.parsed_sizes = []
+            st.session_state.parsed_colors = []
 
     def get_valid_sizes_from_parsed(parsed_sizes):
         """Extract valid size names that match our available options"""
@@ -652,9 +769,97 @@ elif st.session_state.get("authentication_status") is True:
         else:
             original_hex = st.session_state.panel_color_mapping.get(mockup_idx)
             if original_hex and original_hex != hex_selected:
-                st.session_state.replaced_color = original_hex
+                st.session_state.panel_color_mapping[mockup_idx] = hex_selected
+
+    # Initialize session state for color mappings
+    if 'original_mockup_colors' not in st.session_state:
+        st.session_state.original_mockup_colors = {}
+    if 'panel_color_mapping' not in st.session_state:
+        st.session_state.panel_color_mapping = {}
+
+    if 'template_generate_mockup' not in st.session_state:
+        st.session_state.template_generate_mockup = None
+    if 'template_generate_color' not in st.session_state:
+        st.session_state.template_generate_color = None
+        
+    def generate_template_mockup_on_demand(template_idx, color_name):
+        """Generate a mockup for a specific template and color on demand"""
+        if not st.session_state.uploaded_image_url:
+            st.warning("Please upload an image first before generating mockups.")
+            return False
+            
+        if not hasattr(st.session_state, 'mockup_results_all') or len(st.session_state.mockup_results_all) <= template_idx:
+            st.error(f"Template {template_idx + 1} data not found.")
+            return False
+        
+        template = st.session_state.mockup_results_all[template_idx]
+        mockup_id = template['mockup_id']
+        smart_object_uuid = template.get('smart_object_uuid')
+        
+        hex_color = color_name_to_hex(color_name)
+        
+        existing_index = None
+        if 'results' in template:
+            for i, result in enumerate(template['results']):
+                if result['color'] == hex_color:
+                    return True
+        
+        color_index = st.session_state.get('template_color_index')
+        
+        with st.spinner(f"Generating {color_name} mockup for Template {template_idx + 1}..."):
+            result = generate_single_mockup(
+                st.session_state.uploaded_image_url,
+                hex_color,
+                mockup_id=mockup_id,
+                smart_object_uuid=smart_object_uuid
+            )
+            
+            if result:
+                if 'results' not in template:
+                    template['results'] = []
                 
-            st.session_state.panel_color_mapping[mockup_idx] = hex_selected
+                if color_index is not None and color_index < len(template['results']):
+                    template['results'][color_index] = result
+                    st.success(f"Replaced {color_name} mockup for Template {template_idx + 1}")
+                else:
+                    template['results'].append(result)
+                    st.success(f"Generated new {color_name} mockup for Template {template_idx + 1}")
+                
+                st.session_state.mockup_results_all[template_idx] = template
+                
+                if 'template_color_index' in st.session_state:
+                    del st.session_state.template_color_index
+                    
+                return True
+            else:
+                st.error(f"Failed to generate {color_name} mockup for Template {template_idx + 1}")
+                return False
+
+    def on_template_color_change(template_idx, color_index):
+        """Handle color change in the template mockup preview"""
+        if not hasattr(st.session_state, 'mockup_results_all') or len(st.session_state.mockup_results_all) <= template_idx:
+            return
+            
+        color_key = f"template_{template_idx}_color_{color_index}"
+        if color_key not in st.session_state:
+            return
+            
+        selected_color = st.session_state[color_key]
+        hex_selected = color_name_to_hex(selected_color)
+        
+        template = st.session_state.mockup_results_all[template_idx]
+        mockup_exists = False
+        
+        if 'results' in template:
+            for result in template['results']:
+                if result['color'] == hex_selected:
+                    mockup_exists = True
+                    break
+        
+        if not mockup_exists:
+            st.session_state.template_generate_mockup = template_idx
+            st.session_state.template_generate_color = selected_color
+            st.session_state.template_color_index = color_index
 
         # Update the design SKU to reflect the selected color
         parent_sku = ""
@@ -677,13 +882,28 @@ elif st.session_state.get("authentication_status") is True:
 
         if not products_df.empty and 'id' in products_df.columns and 'product_name' in products_df.columns:
             product_options = {"None": "None"}
-            for _, row in products_df.iterrows():
+            product_id_to_index = {"None": 0}  # Map product IDs to their indices
+            for idx, row in enumerate(products_df.iterrows(), 1):
+                row = row[1]
                 product_options[str(row['id'])] = f"{row['product_name']} (ID: {row['id']})"
+                product_id_to_index[str(row['id'])] = idx
+            
+            # Handle refresh after new product creation
+            if st.session_state.refresh_product_selector and 'new_product_id' in st.session_state:
+                selected_id = str(st.session_state.new_product_id)
+                st.session_state.product_selector = selected_id
+                st.session_state.refresh_product_selector = False
+                del st.session_state.new_product_id  # Clear to prevent re-use
+            else:
+                selected_id = str(st.session_state.selected_product_id) if st.session_state.selected_product_id else "None"
+            
+            selected_index = product_id_to_index.get(selected_id, 0)
             
             st.selectbox(
                 "Select a Product",
                 options=list(product_options.keys()),
                 format_func=lambda x: product_options[x],
+                index=selected_index,
                 key="product_selector",
                 on_change=load_product_data
             )
@@ -691,6 +911,7 @@ elif st.session_state.get("authentication_status") is True:
             if st.session_state.selected_product_data:
                 product = st.session_state.selected_product_data
                 st.success(f"Selected: {product['product_name']}")
+                
                 with st.expander("Product Details"):
                     st.json(product)
         else:
@@ -729,8 +950,8 @@ elif st.session_state.get("authentication_status") is True:
                                     unsafe_allow_html=True
                                 )
             
-            design_name = st.text_input("Design Name", placeholder="Value", key="design_name", 
-                                        on_change=update_design_sku)
+            design_name = st.text_input("Design Name", placeholder="Value", 
+                                        key="design_name", on_change=update_design_sku)
             
             marketplace_title = st.text_input("Marketplace Title (80 character limit)", 
                                              value=default_marketplace_title, 
@@ -738,7 +959,6 @@ elif st.session_state.get("authentication_status") is True:
                                              key="marketplace_title",
                                              on_change=update_design_sku)
             
-            # Display character count for marketplace title
             if marketplace_title:
                 char_count = len(marketplace_title)
                 st.caption(f"{char_count}/80 characters")
@@ -756,13 +976,14 @@ elif st.session_state.get("authentication_status") is True:
             elif not 'design_sku' in st.session_state or not st.session_state.design_sku:
                 st.session_state.design_sku = default_design_sku
             
-            design_sku = st.text_input("Design SKU", value=st.session_state.design_sku, disabled=True, key="design_sku_display")
+            design_sku = st.text_input("Design SKU", value=st.session_state.design_sku, disabled=True, 
+                                       key="design_sku_display")
 
-            sizes = st.multiselect("Select Sizes", AVAILABLE_SIZES, default=default_sizes, key="selected_sizes", 
-                                   on_change=update_design_sku)
+            sizes = st.multiselect("Select Sizes", AVAILABLE_SIZES, default=default_sizes, 
+                                   key="selected_sizes", on_change=update_design_sku)
             
-            colors = st.multiselect("Select Colours", AVAILABLE_COLORS, default=default_colors, key="selected_colors", 
-                                    on_change=update_design_sku)
+            colors = st.multiselect("Select Colours", AVAILABLE_COLORS, default=default_colors, 
+                                    key="selected_colors", on_change=update_design_sku)
 
             if colors:
                 st.write("Selected Colors:")
@@ -779,8 +1000,7 @@ elif st.session_state.get("authentication_status") is True:
                         )
 
             design_image = st.file_uploader("Design Image", type=["png", "jpg", "jpeg"], 
-                                            key="design_image", 
-                                            on_change=on_file_upload)
+                                            key="design_image", on_change=on_file_upload)
             
             if design_image is None and st.session_state.design_image_data is not None:
                 design_image = st.session_state.design_image_data
@@ -794,12 +1014,10 @@ elif st.session_state.get("authentication_status") is True:
             if st.button("Generate All Mockups"):
                 validation_passed = True
                 
-                # Validate Design Name
                 if not design_name or design_name.strip() == "":
                     st.error("Please enter a Design Name.")
                     validation_passed = False
                 
-                # Validate Marketplace Title
                 if not marketplace_title or marketplace_title.strip() == "":
                     st.error("Please enter a Marketplace Title.")
                     validation_passed = False
@@ -807,7 +1025,6 @@ elif st.session_state.get("authentication_status") is True:
                     st.error("Marketplace Title must be 80 characters or less.")
                     validation_passed = False
                 
-                # Validate Design Image
                 if not design_image:
                     st.error("Please upload a Design Image to generate mockups.")
                     validation_passed = False
@@ -887,45 +1104,38 @@ elif st.session_state.get("authentication_status") is True:
                         colors = product_data["colors"]
                         color_hex_set = {color_name_to_hex(color) for color in colors}
                         
-                        # Calculate total iterations based on mockup sets
                         total_iterations = sum(len([m for m in mockup_set['results'] if m['color'] in color_hex_set]) for mockup_set in all_mockup_results)
                         progress_bar = st.progress(0)
                         completed = 0
                         
                         temp_dir = tempfile.mkdtemp()
                         
-                        # Reset used SKU numbers and sequence for this save operation
                         st.session_state.used_sku_numbers = set()
                         st.session_state.sku_sequence_number = None
                         
-                        # Change how we organize mockup URLs - group by color first, then by mockup ID
                         color_to_mockup_urls = {}
                         
                         for mockup_set_idx, mockup_set in enumerate(all_mockup_results):
                             mockup_id = mockup_set['mockup_id']
                             
-                            # Filter mockup results to include only currently selected colors
                             filtered_results = [m for m in mockup_set['results'] if m['color'] in color_hex_set]
                             
                             for mockup in filtered_results:
                                 hex_color = mockup['color']
                                 mockup_url = mockup['rendered_image_url']
                                 
-                                # Initialize the color entry if it doesn't exist
                                 if hex_color not in color_to_mockup_urls:
                                     color_to_mockup_urls[hex_color] = {}
                                 
                                 try:
                                     response = requests.get(mockup_url, timeout=15)
                                     if response.status_code == 200:
-                                        # Generate a temporary SKU for filename
                                         color_name = hex_to_color_name(hex_color.lstrip('#'))
                                         temp_sku = generate_product_sku(
                                             parent_sku=st.session_state.selected_product_data['item_sku'] if st.session_state.selected_product_data and 'item_sku' in st.session_state.selected_product_data else None,
                                             size=sizes[0] if sizes else None,
                                             color=color_name
                                         )
-                                        # Use item_sku instead of design_sku for the filename
                                         item_sku = st.session_state.selected_product_data['item_sku'] if st.session_state.selected_product_data and 'item_sku' in st.session_state.selected_product_data else "unknown"
                                         local_filename = f"mockup_{item_sku}_{color_name}_{mockup_id[-6:]}.png"
                                         local_filepath = os.path.join(temp_dir, local_filename)
@@ -952,7 +1162,6 @@ elif st.session_state.get("authentication_status") is True:
                                             )
                                             
                                             s3_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{s3_key}"
-                                            # Store mockup URL by mockup_id for this color
                                             color_to_mockup_urls[hex_color][mockup_id] = s3_url
                                         except Exception as e:
                                             st.warning(f"Error uploading to S3: {e}")
@@ -984,22 +1193,18 @@ elif st.session_state.get("authentication_status") is True:
                         
                         success_count = 0
                         
-                        # Reset used SKU numbers and sequence again for database saving
                         st.session_state.used_sku_numbers = set()
                         st.session_state.sku_sequence_number = None
                         
-                        # Create one product variant per size and color, with all mockup URLs
                         product_variants = {}
                         for hex_color, mockup_urls_by_id in color_to_mockup_urls.items():
                             color_name = hex_to_color_name(hex_color.lstrip('#'))
                             if not color_name:
                                 continue
                             
-                            # Create entries for each size with this color
                             for size in sizes:
                                 variant_key = (size, color_name)
                                 if variant_key not in product_variants:
-                                    # Initialize with empty lists
                                     product_variants[variant_key] = {
                                         'size': size,
                                         'color': color_name,
@@ -1009,23 +1214,19 @@ elif st.session_state.get("authentication_status") is True:
                                         'mockup_url_dict': {}
                                     }
                                 
-                                # Add all mockup URLs for this color
                                 for mockup_id, url in mockup_urls_by_id.items():
                                     if mockup_id not in product_variants[variant_key]['mockup_ids']:
                                         product_variants[variant_key]['mockup_ids'].append(mockup_id)
                                         product_variants[variant_key]['mockup_urls'].append(url)
                                         
-                                        # Find the corresponding smart object UUID
                                         for mockup_set in all_mockup_results:
                                             if mockup_set['mockup_id'] == mockup_id:
                                                 smart_object_uuid = mockup_set.get('smart_object_uuid')
                                                 product_variants[variant_key]['smart_object_uuids'].append(smart_object_uuid)
                                                 break
                                         
-                                # Store urls by mockup ID for structured storage
                                 product_variants[variant_key]['mockup_url_dict'][hex_color] = mockup_urls_by_id
                         
-                        # Save consolidated variants to database
                         for variant_key, variant_data in product_variants.items():
                             size, color = variant_key
                             try:
@@ -1035,12 +1236,9 @@ elif st.session_state.get("authentication_status") is True:
                                     color=color
                                 )
                                 
-                                # Create a proper structure for mockup URLs
-                                # Each color should have a comma-separated list of mockup URLs
                                 mockup_urls_json = {}
                                 hex_color = color_name_to_hex(color)
                                 if hex_color in color_to_mockup_urls:
-                                    # Change from list to comma-separated string
                                     mockup_urls_json[hex_color] = ", ".join(color_to_mockup_urls[hex_color].values())
                                 
                                 product_dict = {
@@ -1074,111 +1272,6 @@ elif st.session_state.get("authentication_status") is True:
                                 st.rerun()
                         else:
                             st.error("Failed to save any products to database. Check the errors above.")
-
-        if 'original_mockup_colors' not in st.session_state:
-            st.session_state.original_mockup_colors = {}
-        if 'panel_color_mapping' not in st.session_state:
-            st.session_state.panel_color_mapping = {}
-
-        if 'template_generate_mockup' not in st.session_state:
-            st.session_state.template_generate_mockup = None
-        if 'template_generate_color' not in st.session_state:
-            st.session_state.template_generate_color = None
-        
-        def generate_template_mockup_on_demand(template_idx, color_name):
-            """Generate a mockup for a specific template and color on demand"""
-            if not st.session_state.uploaded_image_url:
-                st.warning("Please upload an image first before generating mockups.")
-                return False
-                
-            if not hasattr(st.session_state, 'mockup_results_all') or len(st.session_state.mockup_results_all) <= template_idx:
-                st.error(f"Template {template_idx + 1} data not found.")
-                return False
-            
-            template = st.session_state.mockup_results_all[template_idx]
-            mockup_id = template['mockup_id']
-            smart_object_uuid = template.get('smart_object_uuid')
-            
-            hex_color = color_name_to_hex(color_name)
-            
-            existing_index = None
-            if 'results' in template:
-                for i, result in enumerate(template['results']):
-                    if result['color'] == hex_color:
-                        return True
-            
-            color_index = st.session_state.get('template_color_index')
-            
-            with st.spinner(f"Generating {color_name} mockup for Template {template_idx + 1}..."):
-                result = generate_single_mockup(
-                    st.session_state.uploaded_image_url,
-                    hex_color,
-                    mockup_id=mockup_id,
-                    smart_object_uuid=smart_object_uuid
-                )
-                
-                if result:
-                    if 'results' not in template:
-                        template['results'] = []
-                    
-                    if color_index is not None and color_index < len(template['results']):
-                        template['results'][color_index] = result
-                        st.success(f"Replaced {color_name} mockup for Template {template_idx + 1}")
-                    else:
-                        template['results'].append(result)
-                        st.success(f"Generated new {color_name} mockup for Template {template_idx + 1}")
-                    
-                    st.session_state.mockup_results_all[template_idx] = template
-                    
-                    if 'template_color_index' in st.session_state:
-                        del st.session_state.template_color_index
-                        
-                    return True
-                else:
-                    st.error(f"Failed to generate {color_name} mockup for Template {template_idx + 1}")
-                    return False
-
-        def on_template_color_change(template_idx, color_index):
-            """Handle color change in the template mockup preview"""
-            if not hasattr(st.session_state, 'mockup_results_all') or len(st.session_state.mockup_results_all) <= template_idx:
-                return
-                
-            color_key = f"template_{template_idx}_color_{color_index}"
-            if color_key not in st.session_state:
-                return
-                
-            selected_color = st.session_state[color_key]
-            hex_selected = color_name_to_hex(selected_color)
-            
-            template = st.session_state.mockup_results_all[template_idx]
-            mockup_exists = False
-            
-            if 'results' in template:
-                for result in template['results']:
-                    if result['color'] == hex_selected:
-                        mockup_exists = True
-                        break
-            
-            if not mockup_exists:
-                st.session_state.template_generate_mockup = template_idx
-                st.session_state.template_generate_color = selected_color
-                st.session_state.template_color_index = color_index
-
-            # Update the design SKU to reflect the selected color
-            parent_sku = ""
-            if st.session_state.selected_product_data and 'item_sku' in st.session_state.selected_product_data:
-                parent_sku = st.session_state.selected_product_data['item_sku']
-            
-            sizes = st.session_state.selected_sizes if 'selected_sizes' in st.session_state else []
-            
-            new_sku = generate_product_sku(
-                parent_sku=parent_sku,
-                size=sizes[0] if sizes else None,
-                color=selected_color,
-                is_display=True
-            )
-            
-            st.session_state.design_sku = new_sku
 
         with right_col:
             st.write("### Preview by Colour")
@@ -1278,7 +1371,7 @@ elif st.session_state.get("authentication_status") is True:
                                         caption=f"{color_name}",
                                         use_container_width=True
                                     )
-                
+            
             elif st.session_state.mockup_results:
                 available_mockup_colors = list(st.session_state.mockup_results.keys())
                 generated_color_names = []
@@ -1353,7 +1446,7 @@ elif st.session_state.get("authentication_status") is True:
                                     st.session_state.generate_for_panel = i
                                     st.session_state.generate_color = selected_color
                                     st.rerun()
-                                    
+                                
             else:
                 st.info("Generate mockups to see previews here")
                 
