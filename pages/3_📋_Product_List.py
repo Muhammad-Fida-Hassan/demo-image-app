@@ -425,6 +425,10 @@ elif st.session_state.get("authentication_status") is True:
                                     break
                             if not mapped:
                                 standardized_df[required_field] = ''
+                    
+                    # Copy product_type column to standardized_df to avoid KeyError
+                    if 'product_type' in export_df.columns:
+                        standardized_df['product_type'] = export_df['product_type']
 
                     if 'product_type' in export_df.columns:
                         mask_regular = export_df['product_type'] == 'Regular'
@@ -435,22 +439,24 @@ elif st.session_state.get("authentication_status") is True:
                             standardized_df.loc[mask_generated, 'parent_child'] = 'Child'
                         if any(mask_regular):
                             standardized_df.loc[mask_regular, 'parent_sku'] = ''
-                        if any(mask_generated) and any(mask_regular):
-                            regular_skus = export_df.loc[mask_regular, 'item_sku'].values
-                            standardized_df.loc[mask_generated, 'parent_sku'] = regular_skus[0] if len(regular_skus) > 0 else ''
-
-                    additional_fields = ['price', 'quantity', 'description', 'product_type']
-                    for field in additional_fields:
-                        if field in export_df.columns:
-                            standardized_df[field] = export_df[field]
-
-                    if 'product_type' in standardized_df.columns:
-                        mask_generated = standardized_df['product_type'] == 'Generated'
+                        
                         if any(mask_generated):
                             standardized_df.loc[mask_generated, 'category'] = standardized_df.loc[mask_generated, 'product_name']
+                        
                         mask_parent_generated = (standardized_df['product_type'] == 'Generated') & (standardized_df['parent_child'] == 'Parent')
                         if any(mask_parent_generated):
                             standardized_df.loc[mask_parent_generated, 'item_sku'] = ''
+                            
+                        # Ensure proper parent-child relationships for generated products
+                        if 'parent_id' in export_df.columns:
+                            for idx, row in standardized_df[mask_generated].iterrows():
+                                if idx in export_df.index and 'parent_id' in export_df.columns:
+                                    parent_id = export_df.loc[idx, 'parent_id']
+                                    if parent_id and not pd.isna(parent_id):
+                                        parent_product = products_df[products_df['id'] == parent_id]
+                                        if not parent_product.empty and 'item_sku' in parent_product.columns:
+                                            standardized_df.at[idx, 'parent_sku'] = parent_product.iloc[0]['item_sku']
+                            
                         if 'marketplace_title' not in standardized_df.columns or standardized_df['market_place_title'].isna().any():
                             if 'marketplace_title' not in standardized_df.columns:
                                 standardized_df['market_place_title'] = ''
