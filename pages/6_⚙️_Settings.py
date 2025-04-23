@@ -54,34 +54,14 @@ elif st.session_state.get("authentication_status") is True:
         
         # Initialize session state for FTP form
         if 'ftp_edit_mode' not in st.session_state:
-            st.session_state.ftp_edit_mode = False
+            st.session_state.ftp_edit_mode = False  # Initialize as False
         if 'ftp_edit_id' not in st.session_state:
-            st.session_state.ftp_edit_id = None
-        
-        # Function to toggle edit mode
-        def toggle_edit_mode(ftp_id=None):
-            st.session_state.ftp_edit_mode = not st.session_state.ftp_edit_mode
-            st.session_state.ftp_edit_id = ftp_id
-            
-        # Function to clear form
-        def clear_ftp_form():
-            if 'ftp_host' in st.session_state:
-                st.session_state.ftp_host = ""
-            if 'ftp_port' in st.session_state:
-                st.session_state.ftp_port = 21
-            if 'ftp_username' in st.session_state:
-                st.session_state.ftp_username = ""
-            if 'ftp_password' in st.session_state:
-                st.session_state.ftp_password = ""
-            if 'ftp_is_default' in st.session_state:
-                st.session_state.ftp_is_default = False
-            st.session_state.ftp_edit_mode = False
             st.session_state.ftp_edit_id = None
         
         # Get existing FTP settings
         ftp_settings_df = db.get_ftp_settings()
         
-        # Display existing FTP settings
+        # Display existing FTP settings if any
         if not ftp_settings_df.empty:
             st.subheader("Saved FTP Servers")
             
@@ -157,120 +137,124 @@ elif st.session_state.get("authentication_status") is True:
                     else:
                         st.error(f"Failed to set FTP setting with ID {selected_id} as default")
         
-        # Display form for adding/editing FTP settings
+        # Always show the FTP form section
         st.markdown("---")
+        st.subheader("Add New FTP Server")
         
-        if st.session_state.ftp_edit_mode:
-            st.subheader(f"{'Edit' if st.session_state.ftp_edit_id else 'Add'} FTP Server")
-        else:
-            st.subheader("Add New FTP Server")
-            # Add button to add new FTP server
-            if st.button("Add New FTP Server"):
-                toggle_edit_mode()
-                clear_ftp_form()
-                st.rerun()
+        # Create a function to toggle edit mode and clear form
+        def toggle_edit_mode(ftp_id=None):
+            st.session_state.ftp_edit_mode = not st.session_state.ftp_edit_mode
+            st.session_state.ftp_edit_id = ftp_id
+            
+        # Function to clear form
+        def clear_ftp_form():
+            if 'ftp_host' in st.session_state:
+                st.session_state.ftp_host = ""
+            if 'ftp_port' in st.session_state:
+                st.session_state.ftp_port = 21
+            if 'ftp_username' in st.session_state:
+                st.session_state.ftp_username = ""
+            if 'ftp_password' in st.session_state:
+                st.session_state.ftp_password = ""
+            if 'ftp_is_default' in st.session_state:
+                st.session_state.ftp_is_default = False
+            st.session_state.ftp_edit_mode = False
+            st.session_state.ftp_edit_id = None
         
-        if st.session_state.ftp_edit_mode:
-            with st.form(key="ftp_form"):
-                col1, col2 = st.columns(2)
+        # Always show the form instead of hiding it behind a button
+        with st.form(key="ftp_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                host = st.text_input("FTP Host", 
+                                    value=st.session_state.get('ftp_host', ''), 
+                                    placeholder="ftp.example.com",
+                                    key="ftp_host")
                 
-                with col1:
-                    host = st.text_input("FTP Host", 
-                                         value=st.session_state.get('ftp_host', ''), 
-                                         placeholder="ftp.example.com",
-                                         key="ftp_host")
+                username = st.text_input("Username", 
+                                        value=st.session_state.get('ftp_username', ''),
+                                        key="ftp_username")
+                
+                is_default = st.checkbox("Set as Default", 
+                                        value=st.session_state.get('ftp_is_default', False),
+                                        key="ftp_is_default")
+                
+            with col2:
+                port = st.number_input("Port", 
+                                    min_value=1, 
+                                    max_value=65535, 
+                                    value=st.session_state.get('ftp_port', 21),
+                                    key="ftp_port")
+                
+                password = st.text_input("Password", 
+                                        type="password",
+                                        value=st.session_state.get('ftp_password', ''),
+                                        key="ftp_password")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                submit_button = st.form_submit_button("Save FTP Server", use_container_width=True)
+            
+            with col2:
+                test_button = st.form_submit_button("Test Connection", use_container_width=True)
+            
+            if submit_button:
+                # Validate form
+                if not host:
+                    st.error("FTP Host is required")
+                elif not username:
+                    st.error("Username is required")
+                elif not password:
+                    st.error("Password is required")
+                else:
+                    ftp_data = {
+                        'host': host,
+                        'port': port,
+                        'username': username,
+                        'password': password,
+                        'is_default': is_default
+                    }
                     
-                    username = st.text_input("Username", 
-                                           value=st.session_state.get('ftp_username', ''),
-                                           key="ftp_username")
-                    
-                    is_default = st.checkbox("Set as Default", 
-                                           value=st.session_state.get('ftp_is_default', False),
-                                           key="ftp_is_default")
-                    
-                with col2:
-                    port = st.number_input("Port", 
-                                         min_value=1, 
-                                         max_value=65535, 
-                                         value=st.session_state.get('ftp_port', 21),
-                                         key="ftp_port")
-                    
-                    password = st.text_input("Password", 
-                                           type="password",
-                                           value=st.session_state.get('ftp_password', ''),
-                                           key="ftp_password")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    submit_button = st.form_submit_button("Save", use_container_width=True)
-                
-                with col2:
-                    test_button = st.form_submit_button("Test Connection", use_container_width=True)
-                
-                with col3:
-                    cancel_button = st.form_submit_button("Cancel", use_container_width=True)
-                
-                if submit_button:
-                    # Validate form
-                    if not host:
-                        st.error("FTP Host is required")
-                    elif not username:
-                        st.error("Username is required")
-                    elif not password:
-                        st.error("Password is required")
-                    else:
-                        ftp_data = {
-                            'host': host,
-                            'port': port,
-                            'username': username,
-                            'password': password,
-                            'is_default': is_default
-                        }
-                        
-                        if st.session_state.ftp_edit_id:
-                            # Update existing FTP setting
-                            if db.update_ftp_setting(st.session_state.ftp_edit_id, ftp_data):
-                                st.success(f"FTP server {host} updated")
-                                clear_ftp_form()
-                                st.rerun()
-                            else:
-                                st.error(f"Failed to update FTP server {host}")
+                    if st.session_state.ftp_edit_id:
+                        # Update existing FTP setting
+                        if db.update_ftp_setting(st.session_state.ftp_edit_id, ftp_data):
+                            st.success(f"FTP server {host} updated")
+                            clear_ftp_form()
+                            st.rerun()
                         else:
-                            # Add new FTP setting
-                            new_id = db.add_ftp_setting(ftp_data)
-                            if new_id:
-                                st.success(f"FTP server {host} added successfully")
-                                clear_ftp_form()
-                                st.rerun()
-                            else:
-                                st.error(f"Failed to add FTP server {host}")
-                
-                if test_button:
-                    if not host:
-                        st.error("FTP Host is required")
-                    elif not username:
-                        st.error("Username is required")
-                    elif not password:
-                        st.error("Password is required")
+                            st.error(f"Failed to update FTP server {host}")
                     else:
-                        ftp_data = {
-                            'host': host,
-                            'port': port,
-                            'username': username,
-                            'password': password
-                        }
-                        
-                        with st.spinner("Testing FTP connection..."):
-                            success, message = test_ftp_connection(ftp_data)
-                            if success:
-                                st.success(message)
-                            else:
-                                st.error(message)
-                
-                if cancel_button:
-                    clear_ftp_form()
-                    st.rerun()
+                        # Add new FTP setting
+                        new_id = db.add_ftp_setting(ftp_data)
+                        if new_id:
+                            st.success(f"FTP server {host} added successfully")
+                            clear_ftp_form()
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to add FTP server {host}")
+            
+            if test_button:
+                if not host:
+                    st.error("FTP Host is required")
+                elif not username:
+                    st.error("Username is required")
+                elif not password:
+                    st.error("Password is required")
+                else:
+                    ftp_data = {
+                        'host': host,
+                        'port': port,
+                        'username': username,
+                        'password': password
+                    }
+                    
+                    with st.spinner("Testing FTP connection..."):
+                        success, message = test_ftp_connection(ftp_data)
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
 
     with tab2:
         st.header("General Settings")
