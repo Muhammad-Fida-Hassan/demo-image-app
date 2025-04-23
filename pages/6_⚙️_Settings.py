@@ -54,14 +54,21 @@ elif st.session_state.get("authentication_status") is True:
         
         # Initialize session state for FTP form
         if 'ftp_edit_mode' not in st.session_state:
-            st.session_state.ftp_edit_mode = False  # Initialize as False
+            st.session_state.ftp_edit_mode = False
         if 'ftp_edit_id' not in st.session_state:
             st.session_state.ftp_edit_id = None
+        if 'clear_form' not in st.session_state:
+            st.session_state.clear_form = False
+        
+        # Function to toggle edit mode
+        def toggle_edit_mode(ftp_id=None):
+            st.session_state.ftp_edit_mode = not st.session_state.ftp_edit_mode
+            st.session_state.ftp_edit_id = ftp_id
         
         # Get existing FTP settings
         ftp_settings_df = db.get_ftp_settings()
         
-        # Display existing FTP settings if any
+        # Display existing FTP settings
         if not ftp_settings_df.empty:
             st.subheader("Saved FTP Servers")
             
@@ -100,13 +107,14 @@ elif st.session_state.get("authentication_status") is True:
                     if selected_id:
                         ftp_setting = db.get_ftp_setting(selected_id)
                         if ftp_setting:
-                            st.session_state.ftp_host = ftp_setting['host']
-                            st.session_state.ftp_port = ftp_setting['port']
-                            st.session_state.ftp_username = ftp_setting['username']
-                            st.session_state.ftp_password = ftp_setting['password']
-                            st.session_state.ftp_is_default = ftp_setting['is_default']
-                            st.session_state.ftp_edit_mode = True
+                            # Initialize these values for the form to use
+                            st.session_state.temp_host = ftp_setting['host']
+                            st.session_state.temp_port = ftp_setting['port']
+                            st.session_state.temp_username = ftp_setting['username'] 
+                            st.session_state.temp_password = ftp_setting['password']
+                            st.session_state.temp_is_default = ftp_setting['is_default']
                             st.session_state.ftp_edit_id = selected_id
+                            st.session_state.ftp_edit_mode = True
                             st.rerun()
             
             with col3:
@@ -141,54 +149,46 @@ elif st.session_state.get("authentication_status") is True:
         st.markdown("---")
         st.subheader("Add New FTP Server")
         
-        # Create a function to toggle edit mode and clear form
-        def toggle_edit_mode(ftp_id=None):
-            st.session_state.ftp_edit_mode = not st.session_state.ftp_edit_mode
-            st.session_state.ftp_edit_id = ftp_id
-            
-        # Function to clear form
-        def clear_ftp_form():
-            if 'ftp_host' in st.session_state:
-                st.session_state.ftp_host = ""
-            if 'ftp_port' in st.session_state:
-                st.session_state.ftp_port = 21
-            if 'ftp_username' in st.session_state:
-                st.session_state.ftp_username = ""
-            if 'ftp_password' in st.session_state:
-                st.session_state.ftp_password = ""
-            if 'ftp_is_default' in st.session_state:
-                st.session_state.ftp_is_default = False
-            st.session_state.ftp_edit_mode = False
-            st.session_state.ftp_edit_id = None
+        # Initialize temporary values for form to use
+        if 'temp_host' not in st.session_state:
+            st.session_state.temp_host = ""
+        if 'temp_port' not in st.session_state:
+            st.session_state.temp_port = 21
+        if 'temp_username' not in st.session_state:
+            st.session_state.temp_username = ""
+        if 'temp_password' not in st.session_state:
+            st.session_state.temp_password = ""
+        if 'temp_is_default' not in st.session_state:
+            st.session_state.temp_is_default = False
         
-        # Always show the form instead of hiding it behind a button
+        # Create a form for FTP settings
         with st.form(key="ftp_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 host = st.text_input("FTP Host", 
-                                    value=st.session_state.get('ftp_host', ''), 
+                                    value=st.session_state.temp_host, 
                                     placeholder="ftp.example.com",
                                     key="ftp_host")
                 
                 username = st.text_input("Username", 
-                                        value=st.session_state.get('ftp_username', ''),
+                                        value=st.session_state.temp_username,
                                         key="ftp_username")
                 
                 is_default = st.checkbox("Set as Default", 
-                                        value=st.session_state.get('ftp_is_default', False),
+                                        value=st.session_state.temp_is_default,
                                         key="ftp_is_default")
                 
             with col2:
                 port = st.number_input("Port", 
                                     min_value=1, 
                                     max_value=65535, 
-                                    value=st.session_state.get('ftp_port', 21),
+                                    value=st.session_state.temp_port,
                                     key="ftp_port")
                 
                 password = st.text_input("Password", 
                                         type="password",
-                                        value=st.session_state.get('ftp_password', ''),
+                                        value=st.session_state.temp_password,
                                         key="ftp_password")
             
             col1, col2 = st.columns(2)
@@ -220,7 +220,15 @@ elif st.session_state.get("authentication_status") is True:
                         # Update existing FTP setting
                         if db.update_ftp_setting(st.session_state.ftp_edit_id, ftp_data):
                             st.success(f"FTP server {host} updated")
-                            clear_ftp_form()
+                            # Reset the form by clearing temp variables
+                            st.session_state.temp_host = ""
+                            st.session_state.temp_port = 21
+                            st.session_state.temp_username = ""
+                            st.session_state.temp_password = ""
+                            st.session_state.temp_is_default = False
+                            st.session_state.ftp_edit_id = None
+                            st.session_state.ftp_edit_mode = False
+                            st.session_state.clear_form = True  # Flag to indicate form should be cleared
                             st.rerun()
                         else:
                             st.error(f"Failed to update FTP server {host}")
@@ -229,7 +237,13 @@ elif st.session_state.get("authentication_status") is True:
                         new_id = db.add_ftp_setting(ftp_data)
                         if new_id:
                             st.success(f"FTP server {host} added successfully")
-                            clear_ftp_form()
+                            # Reset the form by clearing temp variables
+                            st.session_state.temp_host = ""
+                            st.session_state.temp_port = 21
+                            st.session_state.temp_username = ""
+                            st.session_state.temp_password = ""
+                            st.session_state.temp_is_default = False
+                            st.session_state.clear_form = True  # Flag to indicate form should be cleared
                             st.rerun()
                         else:
                             st.error(f"Failed to add FTP server {host}")
@@ -253,8 +267,31 @@ elif st.session_state.get("authentication_status") is True:
                         success, message = test_ftp_connection(ftp_data)
                         if success:
                             st.success(message)
+                            # Store the test values in temp variables for potential saving
+                            st.session_state.temp_host = host
+                            st.session_state.temp_port = port
+                            st.session_state.temp_username = username
+                            st.session_state.temp_password = password
                         else:
                             st.error(message)
+        
+        # Cancel button outside the form
+        if st.button("Cancel", key="cancel_button"):
+            # Reset the form by clearing temp variables
+            st.session_state.temp_host = ""
+            st.session_state.temp_port = 21
+            st.session_state.temp_username = ""
+            st.session_state.temp_password = ""
+            st.session_state.temp_is_default = False
+            st.session_state.ftp_edit_id = None
+            st.session_state.ftp_edit_mode = False
+            st.rerun()
+
+        # Show a note about FTP security
+        st.markdown("""
+        > **Note:** FTP credentials are stored in the database. While passwords are stored securely, 
+        FTP itself is not encrypted. For sensitive transfers, consider using SFTP or FTPS instead.
+        """)
 
     with tab2:
         st.header("General Settings")
