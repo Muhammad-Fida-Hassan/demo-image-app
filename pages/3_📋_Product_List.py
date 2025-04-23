@@ -389,11 +389,15 @@ elif st.session_state.get("authentication_status") is True:
                     for parent_row in parent_rows:
                         parent_sku = parent_row.get('item_sku', '')
                         matching_children = [child for child in child_rows if child.get('parent_sku', '') == parent_sku]
+                        # Sort matching children by item_sku from low to high
+                        matching_children = sorted(matching_children, key=lambda x: x.get('item_sku', ''))
                         if matching_children:
                             parent_row['product_name'] = matching_children[0].get('product_name', parent_row['product_name'])
                         export_rows.append(parent_row)
                         export_rows.extend(matching_children)
                         child_rows = [child for child in child_rows if child.get('parent_sku', '') != parent_sku]
+                    # Sort remaining child rows by item_sku before adding them to export
+                    child_rows = sorted(child_rows, key=lambda x: x.get('item_sku', ''))
                     export_rows.extend(child_rows)
 
                     export_df = pd.DataFrame(export_rows)
