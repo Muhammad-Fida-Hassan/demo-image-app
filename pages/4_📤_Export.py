@@ -9,6 +9,7 @@ import datetime
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
+from utils.ftp_utils import upload_to_ftp  # Import the new FTP utility
 
 with open('config.yaml') as file:
     config = yaml.load(file, Loader=SafeLoader)
@@ -356,8 +357,15 @@ elif st.session_state.get("authentication_status") is True:
             export_df = export_df[all_fields]
             csv_data = export_to_csv(export_df)
         
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
+        # Get FTP settings for upload option
+        ftp_settings = db.get_ftp_settings()
+        has_ftp_settings = not ftp_settings.empty
+        
+        # Check if we have default FTP settings
+        default_ftp_settings = db.get_default_ftp_settings() if has_ftp_settings else None
+        
+        col1, col2 = st.columns(2)
+        with col1:
             st.download_button(
                 label="📥 Download CSV",
                 data=csv_data,
@@ -365,6 +373,55 @@ elif st.session_state.get("authentication_status") is True:
                 mime="text/csv",
                 use_container_width=True
             )
+        
+        with col2:
+            # Add FTP upload button if we have FTP settings
+            if has_ftp_settings:
+                # Select FTP server if multiple available
+                if len(ftp_settings) > 1:
+                    ftp_options = {}
+                    for _, row in ftp_settings.iterrows():
+                        label = f"{row['host']} ({row['username']})"
+                        if row['is_default']:
+                            label += " (Default)"
+                        ftp_options[row['id']] = label
+                    
+                    selected_ftp_id = st.selectbox(
+                        "Select FTP Server",
+                        options=list(ftp_options.keys()),
+                        format_func=lambda x: ftp_options[x],
+                        index=0
+                    )
+                    
+                    selected_ftp = db.get_ftp_setting(selected_ftp_id)
+                else:
+                    selected_ftp = default_ftp_settings
+                
+                if st.button("📤 Upload to FTP Server", use_container_width=True):
+                    if not csv_data:
+                        st.error("No data to upload. Please generate export data first.")
+                    elif not selected_ftp:
+                        st.error("No FTP server selected or available.")
+                    else:
+                        with st.spinner(f"Uploading to FTP server {selected_ftp['host']}..."):
+                            success, message = upload_to_ftp(
+                                csv_data, 
+                                export_filename, 
+                                selected_ftp
+                            )
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
+                                st.info("You can configure FTP servers in the Settings page.")
+            else:
+                if st.button("📤 Configure FTP Upload", use_container_width=True):
+                    # Redirect to Settings page
+                    st.info("Please configure an FTP server in the Settings page first.")
+                    if st.button("Go to Settings"):
+                        # Use query parameters to navigate to Settings page
+                        st.experimental_set_query_params(page="settings")
+                        st.rerun()
 
     # Show export format info
     st.subheader("Export Format Information")
@@ -408,4 +465,20 @@ elif st.session_state.get("authentication_status") is True:
     2. Mockups are generated using the DynamicMockups API and also stored in S3
     3. Each color variant gets its own mockup URL in the exported CSV
     4. Your e-commerce platform can use these links directly - no need to re-upload!
+    """)
+
+    # Add info about FTP export at the bottom of the page
+    st.subheader("FTP Export")
+    st.markdown("""
+    You can now upload your CSV exports directly to an FTP server. This allows you to:
+
+    1. **Automate Your Workflow** - Send exports directly to your server without manual download/upload steps
+    2. **Save Time** - One-click upload to your FTP server
+    3. **Integrate** - Easily integrate with e-commerce and inventory systems that support FTP imports
+    
+    To use this feature:
+    1. Go to the **Settings** page and add your FTP server credentials
+    2. Return to this page and use the "Upload to FTP Server" button
+    
+    > **Note:** Your FTP credentials are securely stored in the database.
     """)
