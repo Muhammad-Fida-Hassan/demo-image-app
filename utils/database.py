@@ -300,6 +300,22 @@ class Database:
         """
         self.cursor.execute(create_generated_products_table)
         
+        # Create ftp_settings table if it doesn't exist
+        create_ftp_settings_table = """
+        CREATE TABLE IF NOT EXISTS ftp_settings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            host VARCHAR(255) NOT NULL,
+            port INT NOT NULL DEFAULT 21,
+            username VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            is_default BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+        """
+        self.cursor.execute(create_ftp_settings_table)
+        self.connection.commit()
+        
         # Check if columns exist and add them if they don't
         try:
             # Check if mockup_id column exists
@@ -920,6 +936,212 @@ class Database:
                     self.connection.close()
             except:
                 pass
+
+    # FTP Settings methods
+    def get_ftp_settings(self):
+        """
+        Get all FTP settings from database
+        
+        Returns:
+            DataFrame: FTP settings as pandas DataFrame or empty DataFrame if none exist
+        """
+        if not self._check_connection():
+            st.error("Cannot get FTP settings: database connection failed")
+            return pd.DataFrame()
+            
+        try:
+            query = "SELECT * FROM ftp_settings ORDER BY is_default DESC, created_at DESC"
+            self.cursor.execute(query)
+            result = self.cursor.fetchall()
+            return pd.DataFrame(result) if result else pd.DataFrame()
+        except Error as e:
+            st.error(f"Error retrieving FTP settings: {e}")
+            return pd.DataFrame()
+    
+    def get_default_ftp_settings(self):
+        """
+        Get default FTP settings
+        
+        Returns:
+            dict: Default FTP settings or None if not found
+        """
+        if not self._check_connection():
+            st.error("Cannot get default FTP settings: database connection failed")
+            return None
+            
+        try:
+            query = "SELECT * FROM ftp_settings WHERE is_default = TRUE LIMIT 1"
+            self.cursor.execute(query)
+            result = self.cursor.fetchone()
+            
+            if not result:
+                # If no default, get the most recent
+                query = "SELECT * FROM ftp_settings ORDER BY created_at DESC LIMIT 1"
+                self.cursor.execute(query)
+                result = self.cursor.fetchone()
+                
+            return result
+        except Error as e:
+            st.error(f"Error retrieving default FTP settings: {e}")
+            return None
+    
+    def get_ftp_setting(self, setting_id):
+        """
+        Get specific FTP setting by ID
+        
+        Args:
+            setting_id (int): FTP setting ID
+            
+        Returns:
+            dict: FTP setting or None if not found
+        """
+        if not self._check_connection():
+            st.error(f"Cannot get FTP setting {setting_id}: database connection failed")
+            return None
+            
+        try:
+            query = "SELECT * FROM ftp_settings WHERE id = %s"
+            self.cursor.execute(query, (setting_id,))
+            return self.cursor.fetchone()
+        except Error as e:
+            st.error(f"Error retrieving FTP setting {setting_id}: {e}")
+            return None
+    
+    def add_ftp_setting(self, ftp_data):
+        """
+        Add a new FTP setting to the database
+        
+        Args:
+            ftp_data (dict): FTP setting data including host, port, username, password
+            
+        Returns:
+            int: FTP setting ID if inserted successfully, None otherwise
+        """
+        if not self._check_connection():
+            st.error("Cannot add FTP setting: database connection failed")
+            return None
+            
+        try:
+            # If this is set as default, clear any existing defaults
+            if ftp_data.get('is_default', False):
+                self.cursor.execute("UPDATE ftp_settings SET is_default = FALSE")
+            
+            query = """
+            INSERT INTO ftp_settings (
+                host, port, username, password, is_default
+            ) VALUES (%s, %s, %s, %s, %s)
+            """
+            values = (
+                ftp_data['host'],
+                ftp_data['port'],
+                ftp_data['username'],
+                ftp_data['password'],
+                ftp_data.get('is_default', False)
+            )
+            
+            self.cursor.execute(query, values)
+            self.connection.commit()
+            return self.cursor.lastrowid
+        except Error as e:
+            st.error(f"Error adding FTP setting: {e}")
+            return None
+    
+    def update_ftp_setting(self, setting_id, ftp_data):
+        """
+        Update an FTP setting
+        
+        Args:
+            setting_id (int): FTP setting ID to update
+            ftp_data (dict): Updated FTP data
+            
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        if not self._check_connection():
+            st.error(f"Cannot update FTP setting {setting_id}: database connection failed")
+            return False
+            
+        try:
+            # If this is set as default, clear any existing defaults
+            if ftp_data.get('is_default', False):
+                self.cursor.execute("UPDATE ftp_settings SET is_default = FALSE")
+            
+            query = """
+            UPDATE ftp_settings SET
+                host = %s,
+                port = %s,
+                username = %s,
+                password = %s,
+                is_default = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """
+            
+            values = (
+                ftp_data['host'],
+                ftp_data['port'],
+                ftp_data['username'],
+                ftp_data['password'],
+                ftp_data.get('is_default', False),
+                setting_id
+            )
+            
+            self.cursor.execute(query, values)
+            self.connection.commit()
+            return True
+        except Error as e:
+            st.error(f"Error updating FTP setting {setting_id}: {e}")
+            return False
+    
+    def delete_ftp_setting(self, setting_id):
+        """
+        Delete an FTP setting
+        
+        Args:
+            setting_id (int): FTP setting ID to delete
+            
+        Returns:
+            bool: True if deletion successful, False otherwise
+        """
+        if not self._check_connection():
+            st.error(f"Cannot delete FTP setting {setting_id}: database connection failed")
+            return False
+            
+        try:
+            query = "DELETE FROM ftp_settings WHERE id = %s"
+            self.cursor.execute(query, (setting_id,))
+            self.connection.commit()
+            return True
+        except Error as e:
+            st.error(f"Error deleting FTP setting {setting_id}: {e}")
+            return False
+            
+    def set_ftp_setting_as_default(self, setting_id):
+        """
+        Set an FTP setting as the default
+        
+        Args:
+            setting_id (int): FTP setting ID to set as default
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self._check_connection():
+            st.error(f"Cannot set FTP setting {setting_id} as default: database connection failed")
+            return False
+            
+        try:
+            # Clear any existing defaults
+            self.cursor.execute("UPDATE ftp_settings SET is_default = FALSE")
+            
+            # Set this one as default
+            query = "UPDATE ftp_settings SET is_default = TRUE WHERE id = %s"
+            self.cursor.execute(query, (setting_id,))
+            self.connection.commit()
+            return True
+        except Error as e:
+            st.error(f"Error setting FTP setting {setting_id} as default: {e}")
+            return False
 
 # Create connection pool
 @st.cache_resource
