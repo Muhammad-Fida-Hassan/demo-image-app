@@ -10,7 +10,7 @@ def upload_to_ftp(data, filename, ftp_settings):
     Upload data to an FTP server
     
     Args:
-        data (str): CSV data or other string content to upload
+        data (str or bytes): CSV data or other content to upload
         filename (str): Name of the file to create on the FTP server
         ftp_settings (dict): Dictionary containing FTP credentials
             - host: FTP server hostname
@@ -44,11 +44,19 @@ def upload_to_ftp(data, filename, ftp_settings):
             welcome_msg = ftp.getwelcome()
             st.info(f"Connected to FTP server: {welcome_msg}")
             
-            # Create a temporary file
-            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
-                temp_file.write(data)
-                temp_file.flush()
-                temp_file_path = temp_file.name
+            # Check if data is string or bytes and handle accordingly
+            if isinstance(data, str):
+                # Create a temporary file in text mode for string data
+                with tempfile.NamedTemporaryFile(mode='w+', encoding='utf-8', delete=False) as temp_file:
+                    temp_file.write(data)
+                    temp_file.flush()
+                    temp_file_path = temp_file.name
+            else:
+                # Create a temporary file in binary mode for bytes data
+                with tempfile.NamedTemporaryFile(mode='wb+', delete=False) as temp_file:
+                    temp_file.write(data)
+                    temp_file.flush()
+                    temp_file_path = temp_file.name
             
             # Upload the file
             with open(temp_file_path, 'rb') as file:
