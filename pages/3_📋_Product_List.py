@@ -10,6 +10,10 @@ from utils.color_utils import hex_to_color_name
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
+from ftplib import FTP
+import io
+# Import the FTP utility function
+from utils.ftp_utils import upload_to_ftp as ftp_utils_upload
 
 # Page configuration
 with open('config.yaml') as file:
@@ -54,6 +58,33 @@ elif st.session_state.get("authentication_status") is True:
     if 'items_per_page' not in st.session_state:
         st.session_state.items_per_page = 5
 
+    # Replace the existing upload_to_ftp function with a wrapper that calls the utility function
+    def upload_to_ftp(csv_data, filename):
+        try:
+            # Ensure csv_data is a string; if it's a DataFrame, convert it to CSV
+            if isinstance(csv_data, pd.DataFrame):
+                csv_data = csv_data.to_csv(index=False)
+            
+            # Get FTP settings from the database
+            ftp_settings_df = db.get_ftp_settings()
+            
+            # Check if we have any FTP settings
+            if ftp_settings_df.empty:
+                return False, "FTP settings not found in the database."
+                
+            # Convert DataFrame to dictionary - get the default settings or the first one
+            default_settings = ftp_settings_df[ftp_settings_df['is_default'] == True]
+            if default_settings.empty:
+                ftp_settings = ftp_settings_df.iloc[0].to_dict()
+            else:
+                ftp_settings = default_settings.iloc[0].to_dict()
+
+            # Call the utility function with the string data
+            success, message = ftp_utils_upload(csv_data, filename, ftp_settings)
+            return success, message
+        except Exception as e:
+            return False, f"Failed to upload CSV file to FTP server: {e}"
+
     # Get all products from database
     products_df = db.get_all_products()
     generated_products_df = db.get_all_generated_products()
@@ -62,6 +93,7 @@ elif st.session_state.get("authentication_status") is True:
     if not products_df.empty:
         products_df['product_type'] = 'Regular'
 
+    # Fix syntax error: Removed "if Indicators"
     if not generated_products_df.empty:
         generated_products_df['product_type'] = 'Generated'
         if 'design_sku' in generated_products_df.columns:
@@ -556,6 +588,26 @@ elif st.session_state.get("authentication_status") is True:
                     st.session_state.export_csv_data = empty_df.to_csv(index=False)
 
                 st.success("CSV data prepared! Please proceed to the Export page to download the file.")
+
+            # Add "Send CSV via FTP" button
+            if st.button("Send CSV via FTP", disabled='export_csv_data' not in st.session_state):
+                if 'export_csv_data' in st.session_state:
+                    # Ensure export_csv_data is a string
+                    csv_data = st.session_state.export_csv_data
+                    
+                    # Generate a unique filename for the CSV
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"products_export_{timestamp}.csv"
+                    
+                    # Upload the CSV to FTP
+                    success, message = upload_to_ftp(csv_data, filename)
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.error("No CSV data available to send. Please generate the CSV first.")
 
         # Use only generated products for display
         filtered_df = generated_products_df.copy()
