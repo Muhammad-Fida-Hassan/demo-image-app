@@ -42,42 +42,20 @@ elif st.session_state.get("authentication_status") is True:
     if 'sku_sequence_number' not in st.session_state:
         st.session_state.sku_sequence_number = None
 
-    # Function to generate a sequential 3-digit number based on parent SKU
-    def get_sequential_number(parent_sku=None):
-        """Generate a sequential 3-digit number, starting from parent SKU number + 1"""
+    # Function to generate a random 4-digit number
+    def generate_random_sku_number():
+        """Generate a random 4-digit number or increment the current one"""
         if st.session_state.sku_sequence_number is None:
-            # Extract the number from parent SKU
-            if parent_sku and '-' in parent_sku:
-                try:
-                    parts = parent_sku.split('-')
-                    # Try to get number from the last part (e.g., "T-S-052" -> "052")
-                    if parts[-1].isdigit():
-                        parent_number = int(parts[-1])
-                    # Fall back to second part for standard SKUs (e.g., "ABC-123" -> "123")
-                    elif len(parts) >= 2 and parts[1].isdigit():
-                        parent_number = int(parts[1])
-                    else:
-                        raise ValueError("No valid number found in SKU")
-                        
-                    number = parent_number + 1  # Start from parent number + 1
-                    if number > 999:
-                        number = 1  # Reset to 1 if exceeding 999
-                    st.session_state.sku_sequence_number = number
-                except (IndexError, ValueError):
-                    # If parent SKU doesn't have a valid number, start randomly
-                    number = random.randint(1, 999)
-                    st.session_state.sku_sequence_number = number
-            else:
-                # No valid parent SKU, start randomly
-                number = random.randint(1, 999)
-                st.session_state.sku_sequence_number = number
+            # Generate a random 4-digit number
+            number = random.randint(1000, 9999)
+            st.session_state.sku_sequence_number = number
         else:
             # Increment the current number
             st.session_state.sku_sequence_number += 1
             number = st.session_state.sku_sequence_number
-            # Ensure the number stays within 3 digits (1–999)
-            if number > 999:
-                number = 1  # Reset to 1 if exceeding 999
+            # Ensure the number stays within 4 digits (1000–9999)
+            if number > 9999:
+                number = 1000  # Reset to 1000 if exceeding 9999
                 st.session_state.sku_sequence_number = number
                 st.session_state.used_sku_numbers.clear()  # Clear used numbers to allow reuse
 
@@ -85,29 +63,29 @@ elif st.session_state.get("authentication_status") is True:
         while number in st.session_state.used_sku_numbers:
             st.session_state.sku_sequence_number += 1
             number = st.session_state.sku_sequence_number
-            if number > 999:
-                number = 1
+            if number > 9999:
+                number = 1000
                 st.session_state.sku_sequence_number = number
                 st.session_state.used_sku_numbers.clear()
 
         st.session_state.used_sku_numbers.add(number)
         return number
 
-    # Function to generate product SKU based on selected product's SKU, size, and color
+    # Function to generate product SKU with a random 4-digit number
     def generate_product_sku(parent_sku=None, size=None, color=None, is_display=False):
-        """Generate a unique SKU with a sequential 3-digit number based on parent SKU"""
+        """Generate a unique SKU with a random 4-digit number"""
         sku = ""
         
-        # Extract prefix from parent SKU (everything before the hyphen)
+        # Use a fixed prefix or extract from parent SKU
         if parent_sku and '-' in parent_sku:
             sku_base = parent_sku.split('-')[0].upper()
-        elif parent_sku and len(parent_sku) >= 3:
-            sku_base = parent_sku[:3].upper()
+        elif parent_sku and len(parent_sku) >= 4:
+            sku_base = parent_sku[:4].upper()
         else:
-            sku_base = "DES"
+            sku_base = "QWER"
         
-        # Get a sequential 3-digit number based on parent SKU
-        sku_number = get_sequential_number(parent_sku)
+        # Get a random 4-digit number
+        sku_number = generate_random_sku_number()
         
         # Get size code: use XX for XX-Large, XXX for XXX-Large, otherwise first letter
         size_letter = ""
@@ -122,8 +100,8 @@ elif st.session_state.get("authentication_status") is True:
         # Use the provided color name, if available
         color_name = color if color else ""
         
-        # Construct the SKU: ART-775-L-Blue
-        sku = f"{sku_base}-{sku_number:03d}"
+        # Construct the SKU: QWER-4567-S-Black
+        sku = f"{sku_base}-{sku_number:04d}"
         if size_letter:
             sku += f"-{size_letter}"
         if color_name:
@@ -932,7 +910,6 @@ elif st.session_state.get("authentication_status") is True:
                             for mockup in filtered_results:
                                 hex_color = mockup['color']
                                 mockup_url = mockup['rendered_image_url']
-                                
                                 
                                 # Initialize the color entry if it doesn't exist
                                 if hex_color not in color_to_mockup_urls:

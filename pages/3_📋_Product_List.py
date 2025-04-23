@@ -367,7 +367,8 @@ elif st.session_state.get("authentication_status") is True:
                     export_df = pd.DataFrame(export_rows)
                     required_fields = [
                         'product_name', 'item_sku', 'parent_child', 'parent_sku',
-                        'size', 'color', 'image_url', 'market_place_title', 'category'
+                        'size', 'color', 'image_url', 'market_place_title', 'category',
+                        'price', 'quantity', 'tax_class'
                     ]
                     field_mapping = {
                         'product_name': 'product_name',
@@ -382,7 +383,10 @@ elif st.session_state.get("authentication_status") is True:
                         'original_design_url': 'image_url',
                         'mockup_urls': 'image_url',
                         'market_place_title': 'market_place_title',
-                        'category': 'category'
+                        'category': 'category',
+                        'price': 'price',
+                        'quantity': 'quantity',
+                        'tax_class': 'tax_class'
                     }
 
                     def extract_first_mockup(mockup_data):
@@ -521,6 +525,26 @@ elif st.session_state.get("authentication_status") is True:
                                     parent_product = products_df[products_df['id'] == parent_id]
                                     if not parent_product.empty and 'item_sku' in parent_product.columns:
                                         standardized_df.at[idx, 'parent_sku'] = parent_product.iloc[0]['item_sku']
+
+                    # After all rows are processed, inherit price, quantity and tax class from parents to children
+                    parent_data_cache = {}
+                    
+                    # First collect all parent data
+                    for idx, row in standardized_df.iterrows():
+                        if row['parent_child'] == 'Parent' and row['item_sku']:
+                            parent_data_cache[row['item_sku']] = {
+                                'price': row.get('price', 0.0),
+                                'quantity': row.get('quantity', 0),
+                                'tax_class': row.get('tax_class', '')
+                            }
+                    
+                    # Then update children with parent data
+                    for idx, row in standardized_df.iterrows():
+                        if row['parent_child'] == 'Child' and row['parent_sku'] and row['parent_sku'] in parent_data_cache:
+                            parent_data = parent_data_cache[row['parent_sku']]
+                            standardized_df.at[idx, 'price'] = parent_data['price']
+                            standardized_df.at[idx, 'quantity'] = parent_data['quantity']
+                            standardized_df.at[idx, 'tax_class'] = parent_data['tax_class']
 
                     column_order = required_fields + [col for col in standardized_df.columns if col not in required_fields]
                     st.session_state.export_csv_data = standardized_df[column_order].to_csv(index=False)

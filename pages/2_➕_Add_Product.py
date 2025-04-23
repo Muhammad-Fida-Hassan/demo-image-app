@@ -414,6 +414,15 @@ elif st.session_state.get("authentication_status") is True:
         # Validate SKU prefix
         if not validate_sku_prefix(sku_prefix):
             st.error("Please enter a valid SKU prefix (exactly 4 letters only).")
+        # Check if item name is empty
+        elif not st.session_state.item_name.strip():
+            st.error("Item Name cannot be empty. Please enter a valid name.")
+        # Check if price is zero
+        elif st.session_state.price <= 0:
+            st.error("Price must be greater than zero.")
+        # Check if quantity is zero
+        elif st.session_state.quantity <= 0:
+            st.error("Quantity must be greater than zero.")
         else:
             # Generate final SKU
             item_sku = generate_final_sku(sku_prefix)
