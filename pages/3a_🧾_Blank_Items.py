@@ -45,6 +45,10 @@ elif st.session_state.get("authentication_status") is True:
     # Initialize session state for viewing a single product
     if 'blank_view_product_id' not in st.session_state:
         st.session_state.blank_view_product_id = None
+        
+    # Initialize session state for editing a product
+    if 'blank_edit_product_id' not in st.session_state:
+        st.session_state.blank_edit_product_id = None
 
     # Initialize pagination state
     if 'blank_current_page' not in st.session_state:
@@ -86,6 +90,108 @@ elif st.session_state.get("authentication_status") is True:
                 st.session_state.blank_confirm_delete = False
                 st.session_state.blank_product_to_delete = None
                 st.rerun()
+
+    # Handle edit product
+    elif st.session_state.blank_edit_product_id is not None:
+        product_id = st.session_state.blank_edit_product_id
+        product = db.get_product(product_id)
+
+        if st.button("← Back to Blank Items", key="blank_edit_back_button"):
+            st.session_state.blank_edit_product_id = None
+            st.rerun()
+
+        st.subheader(f"Edit Product: {product['product_name']}")
+        
+        with st.form("edit_product_form"):
+            # Product name field
+            product_name = st.text_input("Product Name", value=product['product_name'])
+            
+            # Price field
+            price = st.number_input("Price ($)", value=float(product['price']), format="%.2f", step=0.01, min_value=0.0)
+            
+            # SKU field
+            sku = st.text_input("SKU", value=product['item_sku'])
+            
+            # Category field
+            category = st.text_input("Category", value=product.get('category', ''))
+            
+            # Size field
+            size_value = product.get('size', '')
+            if isinstance(size_value, str) and size_value.startswith('['):
+                try:
+                    size_data = json.loads(size_value)
+                    if isinstance(size_data, list):
+                        size_value = ', '.join(item['name'] if isinstance(item, dict) and 'name' in item else str(item) for item in size_data)
+                except:
+                    pass
+            size = st.text_input("Size", value=size_value)
+            
+            # Color field
+            color_value = product.get('color', '')
+            if isinstance(color_value, str) and color_value.startswith('['):
+                try:
+                    color_data = json.loads(color_value)
+                    if isinstance(color_data, list):
+                        color_value = ', '.join(str(color) for color in color_data)
+                except:
+                    pass
+            color = st.text_input("Color", value=color_value)
+            
+            # Image URL field
+            image_url = st.text_input("Image URL", value=product.get('image_url', ''))
+            
+            # Display the current image if available
+            if image_url:
+                try:
+                    st.image(image_url, caption="Current Product Image", width=200)
+                except:
+                    st.warning("Could not load the current image.")
+            
+            # Submit and cancel buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                submit_button = st.form_submit_button("Save Changes")
+            with col2:
+                cancel_button = st.form_submit_button("Cancel")
+        
+        if cancel_button:
+            st.session_state.blank_edit_product_id = None
+            st.rerun()
+            
+        if submit_button:
+            # Prepare size and color data
+            size_processed = json.dumps([{"name": s.strip()} for s in size.split(',')]) if size else None
+            color_processed = json.dumps([c.strip() for c in color.split(',')]) if color else None
+            
+            # Update product data
+            updated_product = {
+                'product_name': product_name,
+                'item_sku': sku,
+                'price': price,
+                'category': category,
+                'size': size_processed,
+                'color': color_processed,
+                'image_url': image_url,
+                # Preserve other fields
+                'parent_child': product.get('parent_child', 'Parent'),
+                'parent_sku': product.get('parent_sku', ''),
+                'marketplace_title': product.get('marketplace_title', ''),
+                'tax_class': product.get('tax_class', ''),
+                'quantity': product.get('quantity', 0),
+                'mockup_id': product.get('mockup_id', None),
+                'smart_object_uuid': product.get('smart_object_uuid', None),
+                'mockup_ids': product.get('mockup_ids', None),
+                'smart_object_uuids': product.get('smart_object_uuids', None)
+            }
+            
+            success = db.update_product(product_id, updated_product)
+            
+            if success:
+                st.success("Product updated successfully!")
+                st.session_state.blank_edit_product_id = None
+                st.rerun()
+            else:
+                st.error("Failed to update product. Please try again.")
 
     # Handle view single product
     elif st.session_state.blank_view_product_id is not None:
@@ -257,10 +363,14 @@ elif st.session_state.get("authentication_status") is True:
                     st.write(product_name)
 
                 with cols[2]:
-                    view_col, delete_col = st.columns(2)
+                    view_col, edit_col, delete_col = st.columns(3)
                     with view_col:
                         if st.button("View", key=f"blank_view_{product_id}"):
                             st.session_state.blank_view_product_id = product_id
+                            st.rerun()
+                    with edit_col:
+                        if st.button("Edit", key=f"blank_edit_{product_id}"):
+                            st.session_state.blank_edit_product_id = product_id
                             st.rerun()
                     with delete_col:
                         if st.button("Delete", key=f"blank_delete_{product_id}"):
